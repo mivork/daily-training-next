@@ -1,14 +1,21 @@
-import { FILE_LIMITS, PROFILE_IMAGE_MAX_LENGTH, SCHEMA_VERSION } from './constants';
+import {
+  BODY_DATA_MAX_DAYS,
+  BODY_RANGES,
+  FILE_LIMITS,
+  PROFILE_IMAGE_MAX_LENGTH,
+  SCHEMA_VERSION,
+} from './constants';
 import { isValidDateKey } from './dates';
 import {
   clone,
   isPlainObject,
+  sanitizeBodyData,
   sanitizeCard,
   sanitizeExercise,
   sanitizeProfile,
   sanitizeSettings,
 } from './sanitize';
-import type { AppData, ImportResult, RecordsMap } from './types';
+import type { AppData, BodyField, ImportResult, RecordsMap } from './types';
 
 /* 書き出しJSONの中身。ファイル書き出しと引き継ぎコードで共用する。 */
 export function buildExportPayload(data: AppData, exportedAt: string) {
@@ -21,6 +28,7 @@ export function buildExportPayload(data: AppData, exportedAt: string) {
     settings: data.settings,
     profile: data.profile,
     rivals: data.rivals,
+    bodyData: data.bodyData,
   };
 }
 
@@ -146,6 +154,34 @@ export function validateImportData(parsed: unknown): ImportResult {
     }
   }
 
+  /* bodyData: 日付キーのオブジェクトで、各項目が範囲内の数値であること。
+     旧形式の書き出しには無いので、その場合は検証を省く（＝今のものを保持）。 */
+  if (parsed.bodyData !== undefined) {
+    if (!isPlainObject(parsed.bodyData)) {
+      return fail('からだデータの形式が違います。');
+    }
+    const bodyKeys = Object.keys(parsed.bodyData);
+    if (bodyKeys.length > BODY_DATA_MAX_DAYS) {
+      return fail(`からだデータが多すぎます（最大${BODY_DATA_MAX_DAYS}日分）。`);
+    }
+    for (const key of bodyKeys) {
+      if (!isValidDateKey(key)) {
+        return fail(`からだデータの日付「${key}」の形式が正しくありません。`);
+      }
+      const entry: unknown = parsed.bodyData[key];
+      if (!isPlainObject(entry)) return fail(`${key} のからだデータの形式が違います。`);
+      for (const field of Object.keys(BODY_RANGES) as BodyField[]) {
+        const v = entry[field];
+        if (v !== undefined) {
+          const range = BODY_RANGES[field];
+          if (typeof v !== 'number' || !Number.isFinite(v) || v < range.min || v > range.max) {
+            return fail(`${key} の${range.label}の値が範囲外です。`);
+          }
+        }
+      }
+    }
+  }
+
   /* 検証を通ったので、sanitize で整形する */
   const exercises = parsed.exercises
     .map((raw) => sanitizeExercise(raw))
@@ -165,6 +201,8 @@ export function validateImportData(parsed: unknown): ImportResult {
       /* プロフィール・友達が無い旧形式の書き出しでは null（＝今のものを保持） */
       profile: parsed.profile !== undefined ? sanitizeProfile(parsed.profile) : null,
       rivals,
+      /* からだデータが無い旧形式の書き出しでは null（＝今のものを保持） */
+      bodyData: parsed.bodyData !== undefined ? sanitizeBodyData(parsed.bodyData) : null,
     },
   };
 }

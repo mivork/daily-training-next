@@ -1,7 +1,18 @@
-import { ADVICE_TEXTS, type AdviceKey, TIME_SLOT_LABELS } from './constants';
+import {
+  ADVICE_TEXTS,
+  type AdviceKey,
+  BODY_MOVING_AVERAGE_WINDOW,
+  HEIGHT_RANGE,
+  TIME_SLOT_LABELS,
+} from './constants';
 import { addDays, dateKeyOf, parseKey, startOfWeekMonday, todayDate } from './dates';
 import { toInt } from './sanitize';
 import type {
+  BodyData,
+  BodyEntry,
+  BodyField,
+  BodyPoint,
+  BodySummary,
   CoreData,
   DayRecord,
   DayStats,
@@ -700,4 +711,129 @@ export function pickAdviceKey(data: CoreData): AdviceKey {
 
 export function pickAdvice(data: CoreData): string {
   return ADVICE_TEXTS[pickAdviceKey(data)];
+}
+
+/* ===== からだデータ（体重・体脂肪率・ウエスト） =====
+   測った日だけ記録する形式。無い項目・無い日は集計に入れない。 */
+
+function bodyValueOf(entry: BodyEntry | undefined, field: BodyField): number | null {
+  const v = entry ? entry[field] : undefined;
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
+/* 測定がある日を古い順に取り出す（いずれかの項目が数値の日だけ） */
+export function bodyEntries(bodyData: BodyData): { key: string; entry: BodyEntry }[] {
+  const list: { key: string; entry: BodyEntry }[] = [];
+  Object.keys(bodyData)
+    .sort()
+    .forEach((key) => {
+      const entry = bodyData[key];
+      if (
+        entry &&
+        (bodyValueOf(entry, 'weight') !== null ||
+          bodyValueOf(entry, 'bodyFat') !== null ||
+          bodyValueOf(entry, 'waist') !== null)
+      ) {
+        list.push({ key, entry });
+      }
+    });
+  return list;
+}
+
+/* 項目ごとの測定系列（古い順）。その項目を測った日だけが入る。 */
+export function bodySeries(bodyData: BodyData, field: BodyField): BodyPoint[] {
+  const points: BodyPoint[] = [];
+  Object.keys(bodyData)
+    .sort()
+    .forEach((key) => {
+      const v = bodyValueOf(bodyData[key], field);
+      if (v !== null) points.push({ key, value: v });
+    });
+  return points;
+}
+
+/* 移動平均: 各測定について、その測定を含む直近最大 window 回分の平均。
+   測っていない日ではなく「測定回数」ベースで数える（1日おき測定でも同じ動きになる）。 */
+export function movingAveragePoints(
+  points: BodyPoint[],
+  window: number = BODY_MOVING_AVERAGE_WINDOW,
+): BodyPoint[] {
+  const size = Math.max(1, Math.floor(window));
+  return points.map((point, i) => {
+    const from = Math.max(0, i - size + 1);
+    let sum = 0;
+    for (let j = from; j <= i; j++) sum += points[j].value;
+    return { key: point.key, value: Math.round((sum / (i - from + 1)) * 10) / 10 };
+  });
+}
+
+/* グラフ用: 最初の測定日から最後の測定日までを1日ずつ並べ、測っていない日は
+   null にする（Chart.js 側で spanGaps により線をつなぐ。値の補間はしない）。
+   移動平均も測定日だけに置き、それ以外は null。 */
+export function bodyChartSeries(
+  bodyData: BodyData,
+  field: BodyField,
+): { keys: string[]; values: (number | null)[]; averages: (number | null)[] } {
+  const points = bodySeries(bodyData, field);
+  if (points.length === 0) return { keys: [], values: [], averages: [] };
+  const valueByKey = new Map(points.map((p) => [p.key, p.value]));
+  const avgByKey = new Map(movingAveragePoints(points).map((p) => [p.key, p.value]));
+  const keys: string[] = [];
+  let cursor = parseKey(points[0].key);
+  const last = parseKey(points[points.length - 1].key);
+  let guard = 0;
+  while (cursor <= last && guard < 36600) {
+    guard += 1;
+    keys.push(dateKeyOf(cursor));
+    cursor = addDays(cursor, 1);
+  }
+  return {
+    keys,
+    values: keys.map((k) => valueByKey.get(k) ?? null),
+    averages: keys.map((k) => avgByKey.get(k) ?? null),
+  };
+}
+
+/* 項目ごとの集計: 最新・前回・最初と、その差（小数1桁に丸める）。
+   その項目の測定が無ければ null。 */
+export function bodySummary(bodyData: BodyData, field: BodyField): BodySummary | null {
+  const points = bodySeries(bodyData, field);
+  if (points.length === 0) return null;
+  const round1 = (n: number) => Math.round(n * 10) / 10;
+  const latest = points[points.length - 1];
+  const previous = points.length >= 2 ? points[points.length - 2] : null;
+  const first = points[0];
+  return {
+    latest,
+    previous,
+    first,
+    vsPrevious: previous ? round1(latest.value - previous.value) : null,
+    vsFirst: round1(latest.value - first.value),
+    count: points.length,
+  };
+}
+
+/* BMI（体重 kg ÷ 身長 m の二乗、小数1桁）。
+   身長が未設定（0）・範囲外、または体重が不正なら null（＝表示しない）。 */
+export function bmiOf(weightKg: number, heightCm: number): number | null {
+  if (typeof weightKg !== 'number' || !Number.isFinite(weightKg) || weightKg <= 0) return null;
+  if (
+    typeof heightCm !== 'number' ||
+    !Number.isFinite(heightCm) ||
+    heightCm < HEIGHT_RANGE.min ||
+    heightCm > HEIGHT_RANGE.max
+  ) {
+    return null;
+  }
+  const m = heightCm / 100;
+  return Math.round((weightKg / (m * m)) * 10) / 10;
+}
+
+/* 最近のからだ記録（新しい順、最大 limit 件）。一覧表示用。 */
+export function recentBodyEntries(
+  bodyData: BodyData,
+  limit = 10,
+): { key: string; entry: BodyEntry }[] {
+  const all = bodyEntries(bodyData);
+  return all.slice(Math.max(0, all.length - Math.max(0, limit))).reverse();
 }

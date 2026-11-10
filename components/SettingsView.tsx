@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { FILE_LIMITS, type ViewName } from '../lib/constants';
+import { FILE_LIMITS, HEIGHT_RANGE, type ViewName } from '../lib/constants';
 import { formatDateJa, todayDate } from '../lib/dates';
 import { downloadTextFile, readFileAsText } from '../lib/files';
 import { sanitizeSettings, toInt } from '../lib/sanitize';
@@ -359,6 +359,36 @@ export function SettingsView({ showView, resolvedTheme, onToggleTheme, onResetAl
                 </option>
               ))}
             </select>
+          </div>
+        </fieldset>
+
+        <h3 className="settings-group">からだ</h3>
+        <fieldset className="settings-fieldset">
+          <legend className="field__label">身長</legend>
+          <p className="settings-hint">
+            BMI の計算にだけ使います。入力すると、マイページの「からだ」に最新の体重から計算した
+            BMI が表示されます。体重などの記録はマイページの「からだ」で入力します。
+          </p>
+          <div className="field">
+            <label className="field__label" htmlFor="height-cm">
+              身長（cm・任意）
+            </label>
+            <input
+              type="number"
+              id="height-cm"
+              inputMode="numeric"
+              min={0}
+              max={HEIGHT_RANGE.max}
+              placeholder="例: 170"
+              value={data.settings.heightCm === 0 ? '' : String(data.settings.heightCm)}
+              onChange={(e) => {
+                const settings = sanitizeSettings({
+                  ...data.settings,
+                  heightCm: toInt(e.target.value, 0, 0, HEIGHT_RANGE.max),
+                });
+                update({ settings });
+              }}
+            />
           </div>
         </fieldset>
 

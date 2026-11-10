@@ -1,13 +1,25 @@
 import {
+  BODY_DATA_MAX_DAYS,
+  BODY_RANGES,
   DEFAULT_PREFS,
   DEFAULT_SETTINGS,
+  HEIGHT_RANGE,
   PROFILE_BIO_MAX,
   PROFILE_IMAGE_MAX_LENGTH,
   SCHEMA_VERSION,
   TIME_SLOT_LABELS,
 } from './constants';
-import { mondayFromWeekValue } from './dates';
-import type { Exercise, Prefs, Profile, RivalCard, Settings } from './types';
+import { isValidDateKey, mondayFromWeekValue } from './dates';
+import type {
+  BodyData,
+  BodyEntry,
+  BodyField,
+  Exercise,
+  Prefs,
+  Profile,
+  RivalCard,
+  Settings,
+} from './types';
 
 export function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -81,6 +93,8 @@ export function sanitizeSettings(raw: unknown): Settings {
     }
     /* ランキング参加は明示的に true のときだけオン。旧データに無ければオフ */
     s.rankingOptIn = raw.rankingOptIn === true;
+    /* 身長（cm）。0 は未設定。旧データに項目が無ければ未設定として扱う */
+    s.heightCm = toInt(raw.heightCm, 0, 0, HEIGHT_RANGE.max);
   }
   return s;
 }
@@ -127,6 +141,43 @@ export function sanitizeProfile(raw: unknown): Profile {
     }
   }
   return profile;
+}
+
+/* からだデータの1項目（体重・体脂肪率・ウエスト）を整える。
+   数値でない、または範囲外なら undefined（＝その項目は記録なし）。小数1桁に丸める。 */
+export function toBodyValue(value: unknown, field: BodyField): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
+  const range = BODY_RANGES[field];
+  if (value < range.min || value > range.max) return undefined;
+  return Math.round(value * 10) / 10;
+}
+
+/* 1日のからだデータを整える。有効な項目が1つも無ければ null。 */
+export function sanitizeBodyEntry(raw: unknown): BodyEntry | null {
+  if (!isPlainObject(raw)) return null;
+  const entry: BodyEntry = {};
+  (Object.keys(BODY_RANGES) as BodyField[]).forEach((field) => {
+    const v = toBodyValue(raw[field], field);
+    if (v !== undefined) entry[field] = v;
+  });
+  return Object.keys(entry).length > 0 ? entry : null;
+}
+
+/* からだデータ全体を整える。日付キーが正しくない日や、
+   有効な項目が無い日は落とす。旧データに項目自体が無ければ空オブジェクト。 */
+export function sanitizeBodyData(raw: unknown): BodyData {
+  const result: BodyData = {};
+  if (!isPlainObject(raw)) return result;
+  let count = 0;
+  Object.keys(raw).forEach((key) => {
+    if (count >= BODY_DATA_MAX_DAYS || !isValidDateKey(key)) return;
+    const entry = sanitizeBodyEntry(raw[key]);
+    if (entry) {
+      result[key] = entry;
+      count += 1;
+    }
+  });
+  return result;
 }
 
 /* 取り込んだ対戦カードを検証して整える。形式が違う場合は null。 */

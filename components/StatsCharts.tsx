@@ -18,7 +18,8 @@ import {
   type ChartData,
   type ChartOptions,
 } from 'chart.js';
-import { Bar, Chart } from 'react-chartjs-2';
+import { Bar, Chart, Line } from 'react-chartjs-2';
+import { formatShortDate, parseKey } from '../lib/dates';
 import type { ExerciseRepTotal, WeekTrendPoint } from '../lib/types';
 
 ChartJS.register(
@@ -153,6 +154,90 @@ export function WeeklyTrendChart({ points }: { points: WeekTrendPoint[] }) {
   return (
     <div className="chart-box">
       <Chart type="bar" data={data} options={options} role="img" aria-label={summary} />
+    </div>
+  );
+}
+
+/* からだデータの推移: 実測の折れ線（点つき）と移動平均（破線）の重ね描き。
+   keys は最初の測定日から最後の測定日までの全日で、測っていない日は
+   values / averages が null。補間せず spanGaps で線をつなぐ。 */
+export function BodyLineChart({
+  keys,
+  values,
+  averages,
+  label,
+  unit,
+  summary,
+}: {
+  keys: string[];
+  values: (number | null)[];
+  averages: (number | null)[] | null;
+  label: string;
+  unit: string;
+  summary: string;
+}) {
+  const colors = useChartColors();
+  const datasets: ChartData<'line', (number | null)[], string>['datasets'] = [
+    {
+      label,
+      data: values,
+      borderColor: colors.primary,
+      backgroundColor: colors.primary,
+      pointBackgroundColor: colors.primary,
+      spanGaps: true,
+      tension: 0.25,
+      pointRadius: 3,
+    },
+  ];
+  if (averages) {
+    datasets.push({
+      label: '移動平均',
+      data: averages,
+      borderColor: colors.line,
+      backgroundColor: colors.line,
+      borderDash: [6, 4],
+      pointRadius: 0,
+      spanGaps: true,
+      tension: 0.25,
+    });
+  }
+  const data: ChartData<'line', (number | null)[], string> = {
+    labels: keys.map((k) => formatShortDate(parseKey(k))),
+    datasets,
+  };
+  const options: ChartOptions<'line'> = {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    scales: {
+      x: {
+        ticks: { color: colors.muted, maxTicksLimit: 10 },
+        grid: { color: colors.grid },
+      },
+      y: {
+        grace: '15%',
+        ticks: { color: colors.muted },
+        grid: { color: colors.grid },
+        title: { display: true, text: `${label}（${unit}）`, color: colors.muted },
+      },
+    },
+    plugins: {
+      legend: { labels: { color: colors.text } },
+      tooltip: {
+        callbacks: {
+          title: (items) => {
+            const k = keys[items[0]?.dataIndex ?? 0];
+            return k ? formatShortDate(parseKey(k)) : '';
+          },
+          label: (item) =>
+            item.parsed.y === null ? '' : `${item.dataset.label}: ${item.parsed.y}${unit}`,
+        },
+      },
+    },
+  };
+  return (
+    <div className="chart-box">
+      <Line data={data} options={options} role="img" aria-label={summary} />
     </div>
   );
 }

@@ -390,6 +390,7 @@ describe('validateImportData', () => {
     settings: clone(DEFAULT_SETTINGS),
     profile: { image: '', bio: '' },
     rivals: [],
+    bodyData: {},
     prefs: { schemaVersion: 1, guideDismissed: false, practiceGuideDismissed: false, tutorialSeen: false, exportLastAt: '', mpYear: null, mpMonth: null, mpWeek: '', startPresetDone: false },
   };
 

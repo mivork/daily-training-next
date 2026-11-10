@@ -59,6 +59,7 @@ function snapshotOf(data: AppData): CloudSnapshot {
     settings: data.settings,
     profile: data.profile,
     rivals: data.rivals,
+    bodyData: data.bodyData,
   };
 }
 
@@ -69,6 +70,7 @@ const EMPTY_DATA: AppData = {
   profile: { image: '', bio: '' },
   rivals: [],
   prefs: clone(DEFAULT_PREFS),
+  bodyData: {},
 };
 
 export interface StoreValue {
@@ -233,6 +235,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         },
         profile: d.profile !== null ? d.profile : dataRef.current.profile,
         rivals: d.rivals !== null ? d.rivals : dataRef.current.rivals,
+        /* 旧形式のデータ（からだデータなし）では今のものを保持する */
+        bodyData: d.bodyData !== null ? d.bodyData : dataRef.current.bodyData,
       };
       dataRef.current = next;
       setData(next);
@@ -300,6 +304,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
             },
             profile: d.profile !== null ? d.profile : dataRef.current.profile,
             rivals: d.rivals !== null ? d.rivals : dataRef.current.rivals,
+            /* 旧スナップショット（からだデータなし）では今のものを保持する */
+            bodyData: d.bodyData !== null ? d.bodyData : dataRef.current.bodyData,
           };
           dataRef.current = next;
           setData(next);

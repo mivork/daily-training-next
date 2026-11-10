@@ -9,6 +9,7 @@ export const STORAGE_KEYS = {
   profile: 'dailyTraining.profile.v1',
   prefs: 'dailyTraining.prefs.v1',
   backup: 'dailyTraining.backup.v1',
+  bodyData: 'dailyTraining.bodyData.v1',
 } as const;
 
 /* 同期メタ情報（端末ローカル専用。書き出しJSONには含めない）。 */
@@ -55,7 +56,25 @@ export const DEFAULT_SETTINGS: Settings = {
   nickname: '',
   cardId: '',
   rankingOptIn: false,
+  heightCm: 0,
 };
+
+/* からだデータ（体重・体脂肪率・ウエスト）の値の範囲と件数上限。
+   範囲外の値は壊れたデータとして扱い、読み込み時に落とす。 */
+export const BODY_RANGES = {
+  weight: { min: 20, max: 300, unit: 'kg', label: '体重' },
+  bodyFat: { min: 1, max: 80, unit: '%', label: '体脂肪率' },
+  waist: { min: 30, max: 200, unit: 'cm', label: 'ウエスト' },
+} as const;
+
+/* 身長（cm）の有効範囲。BMI を計算できる範囲として使う。 */
+export const HEIGHT_RANGE = { min: 100, max: 250 } as const;
+
+/* からだデータの日数上限（取り込み時の検証用） */
+export const BODY_DATA_MAX_DAYS = 5000;
+
+/* 移動平均で使う直近の測定回数 */
+export const BODY_MOVING_AVERAGE_WINDOW = 7;
 
 /* アプリの細かな状態（案内の表示、マイページの期間選択、最終書き出し日）。
    データ本体とは別のキーに分けて保存する。 */

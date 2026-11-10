@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import dynamic from 'next/dynamic';
+import { BodySection } from './BodySection';
 import { Collapse } from './Collapse';
 import { Heatmap } from './Heatmap';
 import { RecordEditForm } from './RecordEditForm';
@@ -319,6 +320,7 @@ export function MyPageView() {
     <div className="mypage-layout">
       <nav className="card quick-links mypage-layout__wide" aria-label="マイページの目次">
         <a className="quick-links__link" href="#sec-profile">プロフィール</a>
+        <a className="quick-links__link" href="#sec-body">からだ</a>
         <a className="quick-links__link" href="#sec-compare">期間の比較</a>
         <a className="quick-links__link" href="#sec-weekly">週ごとの推移</a>
         <a className="quick-links__link" href="#sec-calendar">カレンダー</a>
@@ -417,6 +419,9 @@ export function MyPageView() {
           </p>
         </div>
       </section>
+
+      {/* からだ（体重・体脂肪率・ウエスト） */}
+      <BodySection />
 
       {/* 期間の比較 */}
       <section className="card mypage-layout__wide" id="sec-compare" aria-labelledby="mypage-heading">

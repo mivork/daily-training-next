@@ -28,6 +28,26 @@ export interface DayRecord {
 
 export type RecordsMap = Record<string, DayRecord>;
 
+/* 1日のからだデータ。測った項目だけが入る（すべて任意）。
+   体重は kg、体脂肪率は %、ウエストは cm。いずれも小数1桁まで。 */
+export interface BodyEntry {
+  weight?: number;
+  bodyFat?: number;
+  waist?: number;
+}
+
+/* 日付キー（YYYY-MM-DD）→ その日のからだデータ。測った日だけ記録する。 */
+export type BodyData = Record<string, BodyEntry>;
+
+/* からだデータで扱う測定項目 */
+export type BodyField = 'weight' | 'bodyFat' | 'waist';
+
+/* 1回の測定（グラフ・集計用に日付と値を並べた形） */
+export interface BodyPoint {
+  key: string;
+  value: number;
+}
+
 export type TimeSlot = 'morning' | 'noon' | 'night' | 'undecided';
 
 export interface Settings {
@@ -43,6 +63,9 @@ export interface Settings {
   /* オンラインランキングへの参加（opt-in）。既定はオフ。
      旧データに項目が無い場合はオフとして扱う（後方互換）。 */
   rankingOptIn: boolean;
+  /* 身長（cm）。BMI の計算にだけ使う。0 は未設定。
+     旧データに項目が無い場合は未設定（0）として扱う（後方互換）。 */
+  heightCm: number;
 }
 
 export interface Profile {
@@ -91,6 +114,8 @@ export interface AppData {
   profile: Profile;
   rivals: RivalCard[];
   prefs: Prefs;
+  /* からだデータ（体重・体脂肪率・ウエスト）。旧データに無い場合は空。 */
+  bodyData: BodyData;
 }
 
 /* ロジック関数が参照する最小のデータ集合 */
@@ -173,6 +198,8 @@ export type ImportResult =
         /* 旧形式の書き出しでは null（＝今のものを保持） */
         profile: Profile | null;
         rivals: RivalCard[] | null;
+        /* 旧形式の書き出し（からだデータが無い）では null（＝今のものを保持） */
+        bodyData: BodyData | null;
       };
     }
   | { ok: false; error: string };
@@ -219,6 +246,18 @@ export interface NextAction {
   after: { exerciseId: string; name: string } | null;
 }
 
+/* からだデータの項目ごとの集計（最新・前回・最初と、その差） */
+export interface BodySummary {
+  latest: BodyPoint;
+  previous: BodyPoint | null;
+  first: BodyPoint;
+  /* 前回の測定からの変化。 前回が無ければ null */
+  vsPrevious: number | null;
+  /* 記録期間の最初からの変化。測定が1回だけなら 0 */
+  vsFirst: number;
+  count: number;
+}
+
 /* Supabase に保存するスナップショット（prefs は端末ローカルのため含めない） */
 export interface CloudSnapshot {
   exercises: Exercise[];
@@ -226,4 +265,6 @@ export interface CloudSnapshot {
   settings: Settings;
   profile: Profile;
   rivals: RivalCard[];
+  /* 旧スナップショットには無い場合がある（読み込み時は空として扱う） */
+  bodyData: BodyData;
 }

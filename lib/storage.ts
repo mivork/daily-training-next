@@ -1,5 +1,13 @@
 import { RIVAL_MAX, SCHEMA_VERSION, STORAGE_KEYS } from './constants';
-import { clone, sanitizeCard, sanitizeExercise, sanitizePrefs, sanitizeProfile, sanitizeSettings } from './sanitize';
+import {
+  clone,
+  sanitizeBodyData,
+  sanitizeCard,
+  sanitizeExercise,
+  sanitizePrefs,
+  sanitizeProfile,
+  sanitizeSettings,
+} from './sanitize';
 import { SEED_EXERCISES } from './constants';
 import type { AppData } from './types';
 
@@ -55,13 +63,16 @@ export function loadInitialData(): AppData {
   const profile = sanitizeProfile(loadJSON(STORAGE_KEYS.profile));
   const prefs = sanitizePrefs(loadJSON(STORAGE_KEYS.prefs));
 
+  /* からだデータ。旧データ（キー自体が無い）では空になる */
+  const bodyData = sanitizeBodyData(loadJSON(STORAGE_KEYS.bodyData));
+
   /* 対戦カードの固有ID。無ければ生成する。 */
   if (settings.cardId === '') {
     settings.cardId =
       'card-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
   }
 
-  return { exercises, records, settings, profile, rivals, prefs };
+  return { exercises, records, settings, profile, rivals, prefs, bodyData };
 }
 
 /* データの各スライスを対応するキーへ保存する。失敗したキーがあれば false を返す。 */
@@ -75,7 +86,15 @@ export function persistSlices(data: AppData, slices: (keyof AppData)[]): boolean
 }
 
 export function persistAll(data: AppData): boolean {
-  return persistSlices(data, ['exercises', 'records', 'settings', 'profile', 'rivals', 'prefs']);
+  return persistSlices(data, [
+    'exercises',
+    'records',
+    'settings',
+    'profile',
+    'rivals',
+    'prefs',
+    'bodyData',
+  ]);
 }
 
 /* インポート前に退避したデータがあるか */
@@ -99,6 +118,7 @@ export function stashBackup(data: AppData): boolean {
         settings: data.settings,
         profile: data.profile,
         rivals: data.rivals,
+        bodyData: data.bodyData,
       }),
     );
     return true;

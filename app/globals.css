@@ -1071,6 +1071,15 @@ input[type="checkbox"] {
   height: 18rem;
 }
 
+/* マイページ: からだデータ（体重・体脂肪率・ウエスト）のグラフブロック */
+.body-chart {
+  margin-top: var(--space-5);
+}
+
+.body-chart h3 {
+  margin-bottom: var(--space-2);
+}
+
 /* マイページ: 年間ヒートマップ（1日1マス、列が週） */
 .heatmap-scroll {
   overflow-x: auto;
