@@ -35,6 +35,8 @@ ChartJS.register(
 const FONT_FAMILY =
   '"Hiragino Kaku Gothic ProN", "Hiragino Sans", "Noto Sans JP", "Yu Gothic UI", Meiryo, system-ui, sans-serif';
 ChartJS.defaults.font.family = FONT_FAMILY;
+/* 軸ラベルや凡例の既定サイズ（12px）は小さめなので、全グラフ共通で少し大きくする */
+ChartJS.defaults.font.size = 13;
 
 interface ChartColors {
   text: string;

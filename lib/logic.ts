@@ -5,7 +5,15 @@ import {
   HEIGHT_RANGE,
   TIME_SLOT_LABELS,
 } from './constants';
-import { addDays, dateKeyOf, parseKey, startOfWeekMonday, todayDate } from './dates';
+import {
+  addDays,
+  dateKeyOf,
+  formatDateJa,
+  formatShortDate,
+  parseKey,
+  startOfWeekMonday,
+  todayDate,
+} from './dates';
 import { toInt } from './sanitize';
 import type {
   BodyData,
@@ -25,6 +33,7 @@ import type {
   ExerciseTotal,
   HeatmapDay,
   HeatmapState,
+  Insight,
   NextAction,
   PeriodStats,
   RankedRankingRow,
@@ -988,4 +997,289 @@ export function recentBodyEntries(
 ): { key: string; entry: BodyEntry }[] {
   const all = bodyEntries(bodyData);
   return all.slice(Math.max(0, all.length - Math.max(0, limit))).reverse();
+}
+
+/* ===== 分析（マイページの「分析」カード） =====
+   記録とからだデータから、読み取れる「気づき」を文章にする。
+   今日画面のアドバイス（pickAdviceKey / pickAdvice）と同じ集計部品
+   （periodStats・weekdayCompletionRates・exerciseTotals・calcStreak・
+   bodySeries・movingAveragePoints など）の上に作り、集計方法は揃える。
+   データが不足する観点は出さない。医療的な断定はせず、一般的な文言だけを使う。 */
+
+/* 小数1桁に丸める（からだデータの集計と同じ決め方） */
+function round1Of(n: number): number {
+  return Math.round(n * 10) / 10;
+}
+
+/* 変化量の符号付き表示（例: +0.3 / -1） */
+function signedOf(n: number): string {
+  return `${n > 0 ? '+' : ''}${n}`;
+}
+
+/* 直近4週間（今日を含む28日）と、その前4週間の期間集計。
+   分析の気づきと相談用まとめで同じ切り方を使う。 */
+export function fourWeekComparison(
+  data: CoreData,
+  today: Date = todayDate(),
+): { current: PeriodStats; previous: PeriodStats } {
+  return {
+    current: periodStats(data, addDays(today, -27), today),
+    previous: periodStats(data, addDays(today, -55), addDays(today, -28)),
+  };
+}
+
+/* 2つの日付キーの間の日数（b - a） */
+function daysBetween(aKey: string, bKey: string): number {
+  return Math.round((parseKey(bKey).getTime() - parseKey(aKey).getTime()) / (24 * 60 * 60 * 1000));
+}
+
+export function insightsFor(
+  data: CoreData,
+  bodyData: BodyData,
+  today: Date = todayDate(),
+): Insight[] {
+  const insights: Insight[] = [];
+
+  /* 連続記録: 現在値と過去最長、最長更新まであと何日か */
+  const streak = calcStreak(data);
+  const longest = calcLongestStreak(data);
+  if (longest >= 2) {
+    if (streak > 0 && streak >= longest) {
+      insights.push({
+        key: 'streak',
+        label: '連続記録',
+        text: `現在の連続は${streak}日で、過去最長（${longest}日）に並んでいます。次のトレーニング日を完了すると、最長記録を更新できます。`,
+      });
+    } else if (streak > 0) {
+      insights.push({
+        key: 'streak',
+        label: '連続記録',
+        text: `現在の連続は${streak}日、過去最長は${longest}日です。あと${longest - streak + 1}日続けると、最長記録を更新できます。`,
+      });
+    } else {
+      insights.push({
+        key: 'streak',
+        label: '連続記録',
+        text: `今は連続が途切れていますが、過去最長は${longest}日です。今日の分を1つ完了するところから、また積み上げられます。`,
+      });
+    }
+  }
+
+  /* 直近4週間とその前4週間の完了率の変化 */
+  const { current, previous } = fourWeekComparison(data, today);
+  if (
+    current.rate !== null &&
+    previous.rate !== null &&
+    current.trainingDays >= 3 &&
+    previous.trainingDays >= 3 &&
+    /* 両期間とも完了がゼロなら「横ばい」と言わず、出さない */
+    current.completeDays + previous.completeDays > 0
+  ) {
+    const diff = current.rate - previous.rate;
+    const tail =
+      diff >= 10
+        ? '少しずつ上向いています。この調子でいきましょう。'
+        : diff <= -10
+          ? '少し下がり気味です。忙しい日は短縮モードを活用してみましょう。'
+          : '大きな変化はなく、安定しています。';
+    insights.push({
+      key: 'trend',
+      label: '最近の流れ',
+      text: `直近4週間の完了率は${current.rate}%（完了${current.completeDays}日／トレーニング日${current.trainingDays}日）で、その前4週間は${previous.rate}%でした。${tail}`,
+    });
+  }
+
+  /* 曜日別の弱点: 完了率が一番低い曜日（ばらつきがあるときだけ） */
+  const weekdayRates = weekdayCompletionRates(data);
+  const totalTrainingDays = weekdayRates.reduce((sum, r) => sum + r.trainingDays, 0);
+  const ratedWeekdays = weekdayRates.filter((r) => r.rate !== null && r.trainingDays >= 2);
+  if (totalTrainingDays >= 7 && ratedWeekdays.length >= 3) {
+    const weakest = ratedWeekdays.reduce((a, b) => ((b.rate ?? 0) < (a.rate ?? 0) ? b : a));
+    const strongest = ratedWeekdays.reduce((a, b) => ((b.rate ?? 0) > (a.rate ?? 0) ? b : a));
+    if (weakest.rate !== null && strongest.rate !== null && weakest.rate < strongest.rate) {
+      insights.push({
+        key: 'weekday',
+        label: '曜日',
+        text: `${weakest.label}曜日の完了率が${weakest.rate}%（完了${weakest.completeDays}日／トレーニング日${weakest.trainingDays}日）で、ほかの曜日より低めです。いちばん高いのは${strongest.label}曜日の${strongest.rate}%です。${weakest.label}曜日が忙しい場合は、はじめから短縮モードにしておくのも手です。`,
+      });
+    }
+  }
+
+  /* 種目の偏り: 完了セット数が一番多い種目と少ない種目 */
+  const totals = exerciseTotals(data);
+  const totalSets = totals.reduce((sum, t) => sum + t.sets, 0);
+  if (totals.length >= 2 && totalSets >= 10) {
+    const most = totals[0];
+    const least = totals[totals.length - 1];
+    if (most.sets > least.sets) {
+      insights.push({
+        key: 'exercise',
+        label: '種目のバランス',
+        text: `完了セット数は「${most.name}」が${most.sets}セットで一番多く、「${least.name}」が${least.sets}セットで少なめです。偏りが気になるときは、少なめの種目のセット数を少し増やすと全体のバランスが取れます。`,
+      });
+    }
+  }
+
+  /* 短縮日の活用: 直近4週間で、記録のあるトレーニング日のうち
+     短縮モードで完了した日の割合 */
+  let shortRecorded = 0;
+  let shortDone = 0;
+  for (let i = 0; i < 28; i++) {
+    const d = addDays(today, -i);
+    const key = dateKeyOf(d);
+    if (!isTrainingRecordDay(data, key, d)) continue;
+    if (!getRecord(data, key)) continue;
+    shortRecorded += 1;
+    const stats = dayStats(data, key);
+    if (stats.short && stats.complete) shortDone += 1;
+  }
+  if (shortRecorded >= 4 && shortDone >= 1) {
+    const pct = Math.round((shortDone / shortRecorded) * 100);
+    insights.push({
+      key: 'short',
+      label: '短縮モード',
+      text: `直近4週間では、記録のあるトレーニング日${shortRecorded}日のうち${shortDone}日（${pct}%）を短縮モードで完了しています。短い分だけでもやり切れているのは、続ける力になっています。`,
+    });
+  }
+
+  /* 体重の変化ペース: 直近約1か月の変化量と月あたり換算、移動平均の向き */
+  const weightPoints = bodySeries(bodyData, 'weight');
+  if (weightPoints.length >= 2) {
+    const latest = weightPoints[weightPoints.length - 1];
+    const windowStartKey = dateKeyOf(addDays(parseKey(latest.key), -30));
+    const inWindow = weightPoints.filter((p) => p.key >= windowStartKey);
+    if (inWindow.length >= 2) {
+      const first = inWindow[0];
+      const spanDays = daysBetween(first.key, latest.key);
+      if (spanDays >= 7) {
+        const change = round1Of(latest.value - first.value);
+        const perMonth = round1Of((change * 30) / spanDays);
+        let text = `体重は直近約1か月で${signedOf(change)}kgの変化です（月あたり約${signedOf(perMonth)}kgのペース）。`;
+        /* 移動平均の向き: 最新の移動平均と、約4週間前の時点の移動平均を比べる */
+        const averages = movingAveragePoints(weightPoints);
+        const avgByKey = new Map(averages.map((p) => [p.key, p.value]));
+        const earlierKey = [...avgByKey.keys()]
+          .filter((k) => k <= dateKeyOf(addDays(parseKey(latest.key), -28)))
+          .pop();
+        const latestAvg = avgByKey.get(latest.key);
+        const earlierAvg = earlierKey ? avgByKey.get(earlierKey) : undefined;
+        if (latestAvg !== undefined && earlierAvg !== undefined) {
+          const avgDiff = round1Of(latestAvg - earlierAvg);
+          text +=
+            avgDiff <= -0.2
+              ? '移動平均でもゆるやかに下がり続けています。'
+              : avgDiff >= 0.2
+                ? '移動平均では上向きになっています。'
+                : '移動平均はほぼ横ばいです。';
+        }
+        insights.push({ key: 'weight', label: '体重', text });
+      }
+    }
+  }
+
+  return insights;
+}
+
+/* ===== Muse に相談する用のまとめ =====
+   期間の統計・種目別合計・からだデータの要約・分析の気づきを、
+   チャットの Muse に貼れる整形済みテキストにする。生成だけを行い、
+   クリップボードへのコピーは画面側の仕事にする。 */
+export function buildConsultSummary(
+  data: CoreData & { bodyData: BodyData },
+  today: Date = todayDate(),
+): string {
+  const bodyData = data.bodyData;
+  const lines: string[] = [];
+  lines.push('【毎日トレーニングの記録まとめ】');
+  lines.push(`（${formatDateJa(today)}時点）`);
+  lines.push('');
+
+  /* トレーニング（全期間）: いちばん古い記録の日から今日までで集計する */
+  lines.push('■ トレーニング（全期間）');
+  const recordKeys = Object.keys(data.records).sort();
+  if (recordKeys.length === 0) {
+    lines.push('・まだ記録がありません。');
+  } else {
+    const all = periodStats(data, parseKey(recordKeys[0]), today);
+    const totals = allTimeTotals(data);
+    lines.push(
+      `・完了日数: ${all.completeDays}日（トレーニング日${all.trainingDays}日${all.rate !== null ? `、完了率${all.rate}%` : ''}）`,
+    );
+    lines.push(`・完了セット数: ${totals.totalSets}セット`);
+    if (all.repsKnown) lines.push(`・合計回数: ${totals.totalReps}回`);
+    lines.push(`・現在の連続: ${calcStreak(data)}日／最長連続: ${calcLongestStreak(data)}日`);
+    const week = weekProgressStats(data);
+    lines.push(
+      `・今週の進捗: 完了${week.done}日${data.settings.weeklyGoal > 0 ? `（目標${data.settings.weeklyGoal}日）` : `（今週のトレーニング日は残り${week.remaining}日）`}`,
+    );
+  }
+  lines.push('');
+
+  /* 直近4週間とその前4週間の比較 */
+  lines.push('■ 期間の比較（直近4週間とその前4週間）');
+  if (recordKeys.length === 0) {
+    lines.push('・まだ記録がありません。');
+  } else {
+    const { current, previous } = fourWeekComparison(data, today);
+    const periodLine = (label: string, stats: PeriodStats) =>
+      stats.rate === null
+        ? `・${label}: データなし`
+        : `・${label}: 完了率${stats.rate}%（完了${stats.completeDays}日／トレーニング日${stats.trainingDays}日、${stats.sets}セット）`;
+    lines.push(periodLine('直近4週間', current));
+    lines.push(periodLine('その前4週間', previous));
+  }
+  lines.push('');
+
+  /* 種目別の合計（セット数の多い順、上位8件） */
+  lines.push('■ 種目別の合計');
+  const totals = exerciseTotals(data);
+  if (totals.length === 0) {
+    lines.push('・まだ記録がありません。');
+  } else {
+    totals.slice(0, 8).forEach((t) => {
+      lines.push(`・${t.name}: ${t.sets}セット${t.repsKnown ? `・合計${t.reps}回` : ''}`);
+    });
+  }
+  lines.push('');
+
+  /* からだデータの要約 */
+  lines.push('■ からだデータ');
+  const fieldLines: { field: BodyField; label: string; unit: string }[] = [
+    { field: 'weight', label: '体重', unit: 'kg' },
+    { field: 'bodyFat', label: '体脂肪率', unit: '%' },
+    { field: 'waist', label: 'ウエスト', unit: 'cm' },
+  ];
+  let hasBody = false;
+  fieldLines.forEach(({ field, label, unit }) => {
+    const summary = bodySummary(bodyData, field);
+    if (!summary) return;
+    hasBody = true;
+    lines.push(
+      `・${label}: 最新${summary.latest.value}${unit}（${formatShortDate(parseKey(summary.latest.key))}）、最初の記録から${signedOf(summary.vsFirst)}${unit}、測定${summary.count}回`,
+    );
+  });
+  if (!hasBody) {
+    lines.push('・まだ記録がありません。');
+  } else {
+    const weightSummary = bodySummary(bodyData, 'weight');
+    const bmi = weightSummary ? bmiOf(weightSummary.latest.value, data.settings.heightCm) : null;
+    if (bmi !== null) {
+      lines.push(`・BMI: ${bmi}（最新の体重と身長${data.settings.heightCm}cmから計算）`);
+    }
+  }
+  lines.push('');
+
+  /* 分析の気づき */
+  lines.push('■ アプリの分析メモ');
+  const insights = insightsFor(data, bodyData, today);
+  if (insights.length === 0) {
+    lines.push('・まだ分析できる記録がありません。');
+  } else {
+    insights.forEach((ins) => {
+      lines.push(`・${ins.text}`);
+    });
+  }
+  lines.push('');
+  lines.push('この記録をもとに、無理なく続けられるトレーニングと生活習慣のアドバイスをお願いします。');
+  return lines.join('\n');
 }

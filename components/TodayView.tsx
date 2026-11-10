@@ -701,6 +701,9 @@ export function TodayView({ showView, onEditExercise }: TodayViewProps) {
         <div className="advice-card">
           <Collapse title="Museのアドバイス" titleClassName="advice-card__title">
             <p className="advice-card__text">{pickAdvice(core)}</p>
+            <p className="settings-hint">
+              記録全体から読み取った気づきは、マイページの「分析」でまとめて見られます。まとめをコピーしてチャットの Muse に貼ると、詳しい分析も受けられます。
+            </p>
           </Collapse>
         </div>
 

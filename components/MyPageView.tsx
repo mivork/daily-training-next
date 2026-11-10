@@ -44,6 +44,7 @@ import {
 import { downloadTextFile, processProfileImage, readFileAsText } from '../lib/files';
 import {
   allTimeTotals,
+  buildConsultSummary,
   calcLongestStreak,
   calcStreak,
   dayKindFor,
@@ -52,6 +53,7 @@ import {
   exerciseSetTotals,
   exerciseTotals,
   heatmapDays,
+  insightsFor,
   monthlyCompleteDays,
   oldestRecordYear,
   periodStats,
@@ -163,6 +165,9 @@ export function MyPageView() {
   const [cardStatus, setCardStatus] = useState('');
   const [rivalStatus, setRivalStatus] = useState('');
 
+  /* 分析カードの相談用まとめコピーの状態表示 */
+  const [consultStatus, setConsultStatus] = useState('');
+
   /* 外部からのデータ差し替え（インポート等）に、入力欄が追随するようにする。
      入力中の欄は上書きしない（レンダー中の状態調整パターン）。 */
   const [prevNickname, setPrevNickname] = useState(data.settings.nickname);
@@ -222,6 +227,13 @@ export function MyPageView() {
 
   const totals = allTimeTotals(core);
   const totalsList = exerciseTotals(core);
+
+  /* 分析（気づき）と相談用まとめ */
+  const insights = insightsFor(core, data.bodyData);
+  const hasAnyRecord = Object.keys(data.records).length > 0;
+  const monthTotal = monthCounts.reduce((a, b) => a + b, 0);
+  const bestMonthIdx = monthCounts.indexOf(Math.max(...monthCounts));
+
   const ownCard = buildOwnCard(data);
   const people: RivalCard[] = [ownCard, ...data.rivals];
   const hasRivals = data.rivals.length > 0;
@@ -329,12 +341,30 @@ export function MyPageView() {
     }
   };
 
+  /* 相談用まとめのコピー: まとめの生成は lib/logic の純粋関数に任せ、
+     ここではクリップボードへのコピーと結果の表示だけを行う（copyCard と同じ流儀） */
+  const copyConsultSummary = () => {
+    const text = buildConsultSummary({ ...core, bodyData: data.bodyData });
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).then(
+        () => {
+          setConsultStatus('まとめをコピーしました。チャットの Muse に貼り付けると、記録をもとにした分析やアドバイスを受けられます。');
+          announce('相談用まとめをコピーしました');
+        },
+        () => setConsultStatus('コピーできませんでした。ブラウザの権限設定を確認してください。'),
+      );
+    } else {
+      setConsultStatus('この環境ではコピーできません。');
+    }
+  };
+
   return (
     <div className="mypage-layout">
       <nav className="card quick-links mypage-layout__wide" aria-label="マイページの目次">
         <a className="quick-links__link" href="#sec-profile">プロフィール</a>
         <a className="quick-links__link" href="#sec-body">からだ</a>
         <a className="quick-links__link" href="#sec-compare">期間の比較</a>
+        <a className="quick-links__link" href="#sec-insights">分析</a>
         <a className="quick-links__link" href="#sec-weekly">週ごとの推移</a>
         <a className="quick-links__link" href="#sec-weekday">曜日別の完了率</a>
         <a className="quick-links__link" href="#sec-calendar">カレンダー</a>
@@ -533,14 +563,51 @@ export function MyPageView() {
         </div>
       </section>
 
+      {/* 分析: 記録から自動で読み取った気づきと、Muse への相談用まとめ */}
+      <section className="card mypage-layout__wide" id="sec-insights" aria-labelledby="insights-heading">
+        <h2 id="insights-heading">分析</h2>
+        <p className="settings-hint">
+          記録とからだデータから、自動で読み取った気づきです。記録が増えると気づきも増えます。この分析は端末の中だけで行われ、外部に送信されることはありません。
+        </p>
+        {insights.length > 0 ? (
+          <ul className="insights-list">
+            {insights.map((ins) => (
+              <li className="insights-list__item" key={ins.key}>
+                <span className="insights-list__label">{ins.label}</span>
+                {ins.text}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="empty-message">
+            まだ分析できる記録がありません。記録がたまると、ここに気づきが表示されます。
+          </p>
+        )}
+        <div className="data-actions__row">
+          <button type="button" className="btn" onClick={copyConsultSummary}>
+            Muse に相談する用のまとめをコピー
+          </button>
+        </div>
+        <p className="data-status" role="status">
+          {consultStatus}
+        </p>
+        <p className="settings-hint">
+          まとめには、トレーニングの統計・種目別の合計・からだデータの要約・上の気づきが入ります（日ごとの細かい記録そのものは入りません）。コピーしたまとめをチャットの Muse に貼ると、記録をもとにした詳しい分析やアドバイスを受けられます。
+        </p>
+      </section>
+
       {/* 週ごとの推移 */}
       <section className="card mypage-layout__wide" id="sec-weekly" aria-labelledby="weekly-heading">
         <Collapse title="週ごとの推移" headingTag="h2">
           <p className="settings-hint">
             直近12週の完了日数（棒）と完了率（折れ線）です。完了率はトレーニング日だけで計算しています（休みの日は分母に入りません）。今週は今日までの分です。
           </p>
-          <WeeklyTrendChart points={trend} />
-          {latestWeek && (
+          {hasAnyRecord ? (
+            <WeeklyTrendChart points={trend} />
+          ) : (
+            <p className="empty-message">まだ記録がありません。</p>
+          )}
+          {latestWeek && hasAnyRecord && (
             <p className="settings-hint">
               今週は今日までで、トレーニング日{latestWeek.trainingDays}日のうち{latestWeek.completeDays}日完了
               {latestWeek.rate !== null ? `（完了率${latestWeek.rate}%）` : ''}です。週ごとの正確な数値は「期間の比較」の週の比較でも見られます。
@@ -581,7 +648,19 @@ export function MyPageView() {
           <p className="settings-hint">
             {shownYear}年の月ごとの完了日数です。年の選択は「期間の比較」の年セレクトと共通です。
           </p>
-          <MonthlyBarChart year={shownYear} counts={monthCounts} />
+          {hasAnyRecord ? (
+            <>
+              <MonthlyBarChart year={shownYear} counts={monthCounts} />
+              {monthTotal > 0 && (
+                <p className="settings-hint">
+                  {shownYear}年は合計{monthTotal}日完了しています。いちばん多い月は{bestMonthIdx + 1}
+                  月（{monthCounts[bestMonthIdx]}日）です。
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="empty-message">まだ記録がありません。</p>
+          )}
           <ul className="visually-hidden">
             {monthCounts.map((count, idx) => (
               <li key={idx}>

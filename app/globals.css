@@ -283,7 +283,7 @@ input[type="checkbox"] {
 .advice-card {
   background-color: var(--color-primary-soft);
   border-radius: var(--radius-m);
-  padding: var(--space-2) var(--space-4);
+  padding: var(--space-3) var(--space-4);
   margin-bottom: var(--space-3);
 }
 
@@ -537,9 +537,10 @@ input[type="checkbox"] {
 }
 
 /* スキップ中の種目行（R9）: グレーにして区別する */
+/* スキップ中の行は背景色と「スキップ中」ラベルで区別する。
+   文字自体を薄くすると読みにくくなるので opacity は使わない。 */
 .exercise-row--skipped {
   background-color: var(--color-surface-alt);
-  opacity: 0.75;
 }
 
 /* 種目行の操作ボタン（一括完了・スキップ・編集） */
@@ -898,6 +899,13 @@ input[type="checkbox"] {
   color: var(--color-text-muted);
 }
 
+/* エラーの状態表示（ログイン画面など）。補助色のままだと見落としやすいので、
+   危険色＋太字で通常の状態表示と区別する。 */
+.data-status--error {
+  color: var(--color-danger);
+  font-weight: 700;
+}
+
 .empty-message {
   color: var(--color-text-muted);
   padding: var(--space-4) 0;
@@ -1020,7 +1028,7 @@ input[type="checkbox"] {
 
 .compare-table th,
 .compare-table td {
-  padding: var(--space-2) var(--space-2);
+  padding: var(--space-3) var(--space-2);
   border-bottom: 1px solid var(--color-border);
   text-align: right;
 }
@@ -1086,6 +1094,12 @@ input[type="checkbox"] {
 
 .body-chart h3 {
   margin-bottom: var(--space-2);
+}
+
+/* からだカード内の小見出し（期間で比べる / 最近の記録）。
+   h3 の既定余白はリセットされているので、上の要素との間に余白を持つ。 */
+.body-subheading {
+  margin: var(--space-5) 0 var(--space-2);
 }
 
 .body-chart h4 {
@@ -1164,6 +1178,29 @@ input[type="checkbox"] {
   background-color: var(--color-heat-missed);
 }
 
+/* マイページ: 分析カードの気づき一覧。
+   1件ずつ、見出しラベル付きで読み物として並べる。 */
+.insights-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.insights-list__item {
+  background-color: var(--color-surface-alt);
+  border-radius: var(--radius-m);
+  padding: var(--space-3) var(--space-4);
+}
+
+.insights-list__label {
+  display: block;
+  font-size: var(--font-size-s);
+  font-weight: 700;
+  color: var(--color-primary);
+  margin-bottom: var(--space-1);
+}
+
 /* マイページ: 累計 */
 .totals-grid {
   display: grid;
@@ -1224,7 +1261,7 @@ input[type="checkbox"] {
 .share-block {
   background-color: var(--color-surface-alt);
   border-radius: var(--radius-m);
-  padding: var(--space-2) var(--space-4);
+  padding: var(--space-3) var(--space-4);
 }
 
 .share-row {
@@ -2123,7 +2160,7 @@ input[type="checkbox"] {
     flex-direction: column;
     gap: 0.125rem;
     padding: var(--space-1) 0.125rem;
-    font-size: 0.75rem;
+    font-size: 0.8125rem;
     white-space: nowrap;
   }
 

@@ -221,6 +221,9 @@ export function AppShell() {
 
           <footer className="app__footer">
             <p>データはこのブラウザの中（localStorage）とクラウドの両方に保存されます。</p>
+            {user?.email && (
+              <p>ログイン中: {user.email}（変更は自動でクラウドにも保存されます）</p>
+            )}
           </footer>
         </>
       )}

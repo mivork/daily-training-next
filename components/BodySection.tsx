@@ -323,7 +323,7 @@ export function BodySection() {
 
       {hasAnyBody && (
         <>
-          <h3>期間で比べる</h3>
+          <h3 className="body-subheading">期間で比べる</h3>
           <p className="settings-hint">
             今の期間と前の期間で、測った日の値の平均を比べます（測っていない日は数えません）。
           </p>
@@ -412,7 +412,7 @@ export function BodySection() {
 
       {recent.length > 0 && (
         <>
-          <h3>最近の記録</h3>
+          <h3 className="body-subheading">最近の記録</h3>
           <ul className="ex-totals">
             {recent.map(({ key, entry }) => (
               <li className="ex-totals__row" key={key}>

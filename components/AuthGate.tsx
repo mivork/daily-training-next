@@ -32,7 +32,10 @@ export function AuthGate() {
   };
 
   const messageNode = message && (
-    <p className="data-status" role={message.kind === 'error' ? 'alert' : 'status'}>
+    <p
+      className={`data-status${message.kind === 'error' ? ' data-status--error' : ''}`}
+      role={message.kind === 'error' ? 'alert' : 'status'}
+    >
       {message.text}
     </p>
   );

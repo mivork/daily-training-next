@@ -263,6 +263,15 @@ export interface NextAction {
   after: { exerciseId: string; name: string } | null;
 }
 
+/* 分析の気づき1件（マイページの「分析」カード用）。
+   label は短い見出し、text は数値を根拠にした本文。
+   データが不足する観点は出さない（該当する気づき自体を返さない）。 */
+export interface Insight {
+  key: string;
+  label: string;
+  text: string;
+}
+
 /* からだデータの項目ごとの集計（最新・前回・最初と、その差） */
 export interface BodySummary {
   latest: BodyPoint;
