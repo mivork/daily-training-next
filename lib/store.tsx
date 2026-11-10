@@ -12,6 +12,7 @@ import {
   type ReactNode,
 } from 'react';
 import { DEFAULT_PREFS, DEFAULT_SETTINGS, SYNC_META_KEY } from './constants';
+import { rankingNicknameOf, rankingValuesOf } from './logic';
 import { clone } from './sanitize';
 import {
   clearAllKeys,
@@ -89,6 +90,8 @@ export interface StoreValue {
   cloudConfigured: boolean;
   user: User | null;
   syncMessage: string;
+  /* オンラインランキングの同期状態メッセージ */
+  rankingMessage: string;
   signIn: (email: string, password: string) => Promise<{ error?: string; notice?: string }>;
   signUp: (email: string, password: string) => Promise<{ error?: string; notice?: string }>;
   signOut: () => Promise<void>;
@@ -110,6 +113,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [announcement, setAnnouncement] = useState('');
   const [user, setUser] = useState<User | null>(null);
   const [syncMessage, setSyncMessage] = useState('');
+  const [rankingMessage, setRankingMessage] = useState('');
 
   const dataRef = useRef<AppData>(EMPTY_DATA);
   const userRef = useRef<User | null>(null);
@@ -127,7 +131,40 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setAnnouncement(message);
   }, []);
 
-  /* クラウドへ現在のスナップショットを保存する */
+  /* オンラインランキングへの反映。参加オンなら自分の行を最新値で upsert し、
+     オフなら自分の行を削除する（設定でオフにした直後・全データ削除時もここで消える）。
+     ログアウト時は呼ばないので、行は残ったまま更新だけが止まる。 */
+  const syncRanking = useCallback(async () => {
+    const supabase = getSupabase();
+    const currentUser = userRef.current;
+    if (!supabase || !currentUser) return;
+    const current = dataRef.current;
+    if (current.settings.rankingOptIn) {
+      const values = rankingValuesOf(current);
+      const { error } = await supabase.from('dt_rankings').upsert(
+        {
+          user_id: currentUser.id,
+          nickname: rankingNicknameOf(current),
+          week_done: values.weekDone,
+          streak: values.streak,
+          total_days: values.totalDays,
+          total_sets: values.totalSets,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'user_id' },
+      );
+      if (error) {
+        setRankingMessage('ランキングへの反映に失敗しました。通信環境を確認してください。');
+      } else {
+        setRankingMessage('');
+      }
+    } else {
+      const { error } = await supabase.from('dt_rankings').delete().eq('user_id', currentUser.id);
+      if (!error) setRankingMessage('');
+    }
+  }, []);
+
+  /* クラウドへ現在のスナップショットを保存する（ランキングの反映も続けて行う） */
   const pushNow = useCallback(async () => {
     const supabase = getSupabase();
     const currentUser = userRef.current;
@@ -142,7 +179,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } else {
       setSyncMessage('クラウドと同期しました（' + updatedAt.slice(0, 10) + '）。');
     }
-  }, []);
+    await syncRanking();
+  }, [syncRanking]);
 
   const schedulePush = useCallback(() => {
     if (!userRef.current) return;
@@ -259,6 +297,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           nextMeta.lastLocalChangeAt = cloudUpdatedAt;
           saveSyncMeta(nextMeta);
           setSyncMessage('クラウドのデータ（' + cloudUpdatedAt.slice(0, 10) + '）を読み込みました。');
+          /* 採用した設定に合わせてランキング側もそろえる */
+          await syncRanking();
           return;
         }
         setSyncMessage('クラウドのデータ形式を確認できなかったため、ローカルのデータを保存します。');
@@ -266,7 +306,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       /* ローカルの方が新しい、またはクラウドにまだ無い → ローカルを保存 */
       await pushNow();
     },
-    [pushNow],
+    [pushNow, syncRanking],
   );
 
   /* 初期化: ローカル読み込みと、Supabase のセッション復元 */
@@ -296,6 +336,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (event === 'SIGNED_OUT') {
         reconciledForRef.current = '';
         setSyncMessage('');
+        setRankingMessage('');
       } else if (sessionUser && (event === 'SIGNED_IN' || event === 'INITIAL_SESSION')) {
         void reconcile(sessionUser);
       }
@@ -344,6 +385,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setUser(null);
     reconciledForRef.current = '';
     setSyncMessage('');
+    setRankingMessage('');
   }, []);
 
   const value = useMemo<StoreValue>(
@@ -361,6 +403,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       cloudConfigured: isSupabaseConfigured(),
       user,
       syncMessage,
+      rankingMessage,
       signIn,
       signUp,
       signOut,
@@ -378,6 +421,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       announce,
       user,
       syncMessage,
+      rankingMessage,
       signIn,
       signUp,
       signOut,

@@ -1,20 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_SETTINGS, SEED_EXERCISES } from '../lib/constants';
-import { addDays, dateKeyOf, todayDate } from '../lib/dates';
+import { addDays, dateKeyOf, parseKey, startOfWeekMonday, todayDate } from '../lib/dates';
 import {
   calcStreak,
   dayStats,
+  exerciseRepTotals,
+  heatmapDays,
+  monthlyCompleteDays,
   periodStats,
   pickAdviceKey,
+  rankingNicknameOf,
+  rankingValuesOf,
+  rankRankingRows,
+  weeklyTrend,
 } from '../lib/logic';
-import { clone } from '../lib/sanitize';
+import { clone, sanitizeSettings } from '../lib/sanitize';
 import {
   buildExportPayload,
   decodeTransferCode,
   encodeTransferCode,
   validateImportData,
 } from '../lib/transfer';
-import type { CoreData, DayRecord } from '../lib/types';
+import type { CoreData, DayRecord, RankingRow } from '../lib/types';
 
 const EX1 = { id: 'ex1', name: '腕立て伏せ', amount: 20, unit: '回' as const, sets: 2, note: '' };
 const EX2 = { id: 'ex2', name: 'プランク', amount: 30, unit: '秒' as const, sets: 2, note: '' };
@@ -144,6 +151,113 @@ describe('periodStats', () => {
   });
 });
 
+describe('weeklyTrend', () => {
+  it('直近12週分を古い順に返し、各点は月曜はじまりになる', () => {
+    const trend = weeklyTrend(makeCore({}), 12);
+    expect(trend).toHaveLength(12);
+    trend.forEach((p) => {
+      expect(parseKey(p.mondayKey).getDay()).toBe(1);
+    });
+    for (let i = 1; i < trend.length; i++) {
+      expect(trend[i].mondayKey > trend[i - 1].mondayKey).toBe(true);
+    }
+    /* 最後の点は今週 */
+    expect(trend[11].mondayKey).toBe(dateKeyOf(startOfWeekMonday(todayDate())));
+  });
+
+  it('完了した日がある週は完了日数と完了率（トレーニング日のみ）が出る', () => {
+    /* 8日前は先週以前のどこかの日。その日の週だけを抜き出して確かめる */
+    const targetDate = addDays(todayDate(), -8);
+    const targetMondayKey = dateKeyOf(startOfWeekMonday(targetDate));
+    const core = makeCore({ [dateKeyOf(targetDate)]: completeRecord() });
+    const point = weeklyTrend(core, 12).find((p) => p.mondayKey === targetMondayKey);
+    expect(point).toBeDefined();
+    expect(point!.completeDays).toBe(1);
+    expect(point!.trainingDays).toBe(7);
+    /* 完了率 = 1/7 → 14% */
+    expect(point!.rate).toBe(14);
+  });
+
+  it('今日が完了していれば今週の点に反映される', () => {
+    const core = makeCore({ [keyDaysAgo(0)]: completeRecord() });
+    const trend = weeklyTrend(core, 12);
+    expect(trend[11].completeDays).toBeGreaterThanOrEqual(1);
+  });
+
+  it('トレーニング日が無い設定では完了率が null になる', () => {
+    const core = makeCore({}, { trainingWeekdays: [] });
+    const trend = weeklyTrend(core, 12);
+    trend.forEach((p) => {
+      expect(p.trainingDays).toBe(0);
+      expect(p.rate).toBeNull();
+    });
+  });
+});
+
+describe('monthlyCompleteDays', () => {
+  it('12か月分を返し、完了した日の月だけ数える', () => {
+    const core = makeCore({ [keyDaysAgo(0)]: completeRecord() });
+    const counts = monthlyCompleteDays(core, todayDate().getFullYear());
+    expect(counts).toHaveLength(12);
+    expect(counts.reduce((a, b) => a + b, 0)).toBe(1);
+    expect(counts[todayDate().getMonth()]).toBe(1);
+  });
+
+  it('記録が無ければ全て0', () => {
+    const counts = monthlyCompleteDays(makeCore({}), todayDate().getFullYear());
+    expect(counts.every((c) => c === 0)).toBe(true);
+  });
+});
+
+describe('exerciseRepTotals', () => {
+  it('「回」の種目だけを合計回数の多い順に返す（秒の種目は混ぜない）', () => {
+    const core = makeCore({ [keyDaysAgo(0)]: completeRecord(), [keyDaysAgo(1)]: completeRecord() });
+    const totals = exerciseRepTotals(core);
+    /* 腕立て伏せ: 2日 × 2セット × 20回 = 80回。プランク（秒）は含まれない */
+    expect(totals).toEqual([{ name: '腕立て伏せ', reps: 80 }]);
+  });
+
+  it('記録が無ければ空', () => {
+    expect(exerciseRepTotals(makeCore({}))).toEqual([]);
+  });
+});
+
+describe('heatmapDays', () => {
+  it('1年分（365日または366日）を返す', () => {
+    const year = todayDate().getFullYear();
+    const days = heatmapDays(makeCore({}), year);
+    const expected = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0 ? 366 : 365;
+    expect(days).toHaveLength(expected);
+    expect(days[0].key).toBe(`${year}-01-01`);
+    expect(days[days.length - 1].key).toBe(`${year}-12-31`);
+  });
+
+  it('完了・短縮完了・休み・未完了・未来を区別する', () => {
+    const year = todayDate().getFullYear();
+    const shortRec = completeRecord();
+    shortRec.short = true;
+    shortRec.done = { ex1: 1, ex2: 1 };
+    const restRec = completeRecord('rest');
+    restRec.done = {};
+    const core = makeCore({
+      [keyDaysAgo(0)]: completeRecord(),
+      [keyDaysAgo(1)]: shortRec,
+      [keyDaysAgo(2)]: restRec,
+    });
+    const days = heatmapDays(core, year);
+    const byKey = new Map(days.map((d) => [d.key, d.state]));
+    expect(byKey.get(keyDaysAgo(0))).toBe('done');
+    expect(byKey.get(keyDaysAgo(1))).toBe('done-short');
+    expect(byKey.get(keyDaysAgo(2))).toBe('rest');
+    /* 記録の無い過去のトレーニング日は未完了、未来の日は future */
+    expect(byKey.get(keyDaysAgo(10))).toBe('missed');
+    const futureKey = dateKeyOf(addDays(todayDate(), 30));
+    if (parseKey(futureKey).getFullYear() === year) {
+      expect(byKey.get(futureKey)).toBe('future');
+    }
+  });
+});
+
 describe('pickAdviceKey', () => {
   it('記録が無ければ first', () => {
     expect(pickAdviceKey(makeCore({}))).toBe('first');
@@ -159,6 +273,98 @@ describe('pickAdviceKey', () => {
     const trainingWeekdays = [0, 1, 2, 3, 4, 5, 6].filter((d) => d !== todayDow);
     const core = makeCore({}, { trainingWeekdays });
     expect(pickAdviceKey(core)).toBe('rest');
+  });
+});
+
+describe('rankingValuesOf', () => {
+  it('今週の完了日数・連続日数・累計が既存の集計と一致する', () => {
+    const core = makeCore({
+      [keyDaysAgo(0)]: completeRecord(),
+      [keyDaysAgo(1)]: completeRecord(),
+      [keyDaysAgo(2)]: completeRecord(),
+    });
+    const values = rankingValuesOf(core);
+    /* 昨日と一昨日は先週にまたがる場合があるため、今週分は weekProgressStats と同じになることだけを見る */
+    expect(values.streak).toBe(3);
+    expect(values.totalDays).toBe(3);
+    /* 完了セット数: 3日 ×（2種目 × 2セット）= 12 */
+    expect(values.totalSets).toBe(12);
+    expect(values.weekDone).toBeGreaterThanOrEqual(1);
+    expect(values.weekDone).toBeLessThanOrEqual(3);
+  });
+
+  it('記録が無ければすべて0', () => {
+    expect(rankingValuesOf(makeCore({}))).toEqual({
+      weekDone: 0,
+      streak: 0,
+      totalDays: 0,
+      totalSets: 0,
+    });
+  });
+});
+
+describe('rankingNicknameOf', () => {
+  it('設定済みのニックネームを使う', () => {
+    expect(rankingNicknameOf(makeCore({}, { nickname: 'たろう' }))).toBe('たろう');
+  });
+
+  it('未設定なら「ゲスト」になる', () => {
+    expect(rankingNicknameOf(makeCore({}))).toBe('ゲスト');
+  });
+});
+
+describe('rankRankingRows', () => {
+  const row = (patch: Partial<RankingRow> & { userId: string }): RankingRow => ({
+    nickname: patch.userId,
+    weekDone: 0,
+    streak: 0,
+    totalDays: 0,
+    totalSets: 0,
+    updatedAt: '',
+    ...patch,
+  });
+
+  it('指標の降順に並び、同点は同じ順位になる（競技順位方式）', () => {
+    const ranked = rankRankingRows(
+      [
+        row({ userId: 'a', weekDone: 3 }),
+        row({ userId: 'b', weekDone: 5 }),
+        row({ userId: 'c', weekDone: 5 }),
+        row({ userId: 'd', weekDone: 1 }),
+      ],
+      'week',
+    );
+    expect(ranked.map((r) => r.userId)).toEqual(['b', 'c', 'a', 'd']);
+    expect(ranked.map((r) => r.rank)).toEqual([1, 1, 3, 4]);
+  });
+
+  it('指標を切り替えると並びが変わる', () => {
+    const rows = [
+      row({ userId: 'a', weekDone: 7, streak: 1, totalDays: 10 }),
+      row({ userId: 'b', weekDone: 0, streak: 9, totalDays: 3 }),
+    ];
+    expect(rankRankingRows(rows, 'week')[0].userId).toBe('a');
+    expect(rankRankingRows(rows, 'streak')[0].userId).toBe('b');
+    expect(rankRankingRows(rows, 'total')[0].userId).toBe('a');
+  });
+
+  it('元の配列を変更しない', () => {
+    const rows = [row({ userId: 'a', totalDays: 1 }), row({ userId: 'b', totalDays: 2 })];
+    rankRankingRows(rows, 'total');
+    expect(rows.map((r) => r.userId)).toEqual(['a', 'b']);
+  });
+});
+
+describe('sanitizeSettings の rankingOptIn', () => {
+  it('既定はオフで、旧データ（項目なし）でもオフになる', () => {
+    expect(sanitizeSettings({}).rankingOptIn).toBe(false);
+    expect(sanitizeSettings(null).rankingOptIn).toBe(false);
+  });
+
+  it('true のときだけオンになり、それ以外はオフになる', () => {
+    expect(sanitizeSettings({ rankingOptIn: true }).rankingOptIn).toBe(true);
+    expect(sanitizeSettings({ rankingOptIn: 'yes' }).rankingOptIn).toBe(false);
+    expect(sanitizeSettings({ rankingOptIn: 1 }).rankingOptIn).toBe(false);
   });
 });
 

@@ -6,8 +6,16 @@ import type {
   DayRecord,
   DayStats,
   Exercise,
+  ExerciseRepTotal,
   ExerciseTotal,
+  HeatmapDay,
+  HeatmapState,
   PeriodStats,
+  RankedRankingRow,
+  RankingMetricKey,
+  RankingRow,
+  RankingValues,
+  WeekTrendPoint,
 } from './types';
 
 /* ===== 日種別・短縮の判定 ===== */
@@ -378,6 +386,129 @@ export function allTimeTotals(data: CoreData): {
     });
   });
   return totals;
+}
+
+/* ===== オンラインランキング用集計 =====
+   定義は対戦カード（buildOwnCard）やマイページの集計と揃える:
+   weekDone = 今週の完了日数（weekProgressStats.done。分母はトレーニング日のみ）、
+   streak = 現在の連続日数（calcStreak）、
+   totalDays / totalSets = 累計の完了日数・完了セット数（allTimeTotals）。 */
+export function rankingValuesOf(data: CoreData): RankingValues {
+  const totals = allTimeTotals(data);
+  return {
+    weekDone: weekProgressStats(data).done,
+    streak: calcStreak(data),
+    totalDays: totals.totalDays,
+    totalSets: totals.totalSets,
+  };
+}
+
+/* ランキングに表示するニックネーム。プロフィールで設定するニックネームは
+   settings.nickname に保存されている。未設定なら「ゲスト」にする。 */
+export function rankingNicknameOf(data: CoreData): string {
+  const n = data.settings.nickname.trim();
+  return n !== '' ? n : 'ゲスト';
+}
+
+/* 指標キーからランキング行の値を取り出す */
+export function rankingMetricValue(row: RankingRow, metric: RankingMetricKey): number {
+  if (metric === 'week') return row.weekDone;
+  if (metric === 'streak') return row.streak;
+  return row.totalDays;
+}
+
+/* ランキング行を指標の降順に並べ、順位を付ける。
+   同じ値の行は同じ順位（競技順位方式: 1位, 1位, 3位…）。
+   並び順を安定させるため、同点のときはニックネーム→ユーザーID順にする。 */
+export function rankRankingRows(rows: RankingRow[], metric: RankingMetricKey): RankedRankingRow[] {
+  const sorted = [...rows].sort((a, b) => {
+    const diff = rankingMetricValue(b, metric) - rankingMetricValue(a, metric);
+    if (diff !== 0) return diff;
+    if (a.nickname !== b.nickname) return a.nickname < b.nickname ? -1 : 1;
+    return a.userId < b.userId ? -1 : a.userId > b.userId ? 1 : 0;
+  });
+  let prevValue: number | null = null;
+  let prevRank = 0;
+  return sorted.map((row, index) => {
+    const value = rankingMetricValue(row, metric);
+    const rank = prevValue !== null && value === prevValue ? prevRank : index + 1;
+    prevValue = value;
+    prevRank = rank;
+    return { ...row, rank };
+  });
+}
+
+/* ===== グラフ用集計（マイページ） ===== */
+
+/* 週ごとの推移: 今週を含む直近 weekCount 週（月曜はじまり、古い週→新しい週の順）。
+   各週の完了日数と完了率は periodStats で出す。今週は今日までの集計になるため、
+   完了率の分母（トレーニング日）も今日までだけが数えられる。
+   トレーニング日が無い週は rate が null になる（グラフでは線を切る）。 */
+export function weeklyTrend(data: CoreData, weekCount = 12): WeekTrendPoint[] {
+  const thisMonday = startOfWeekMonday(todayDate());
+  const points: WeekTrendPoint[] = [];
+  for (let i = weekCount - 1; i >= 0; i--) {
+    const monday = addDays(thisMonday, -7 * i);
+    const sunday = addDays(monday, 6);
+    const stats = periodStats(data, monday, sunday);
+    points.push({
+      mondayKey: dateKeyOf(monday),
+      label: `${monday.getMonth() + 1}/${monday.getDate()}`,
+      completeDays: stats.completeDays,
+      trainingDays: stats.trainingDays,
+      rate: stats.rate,
+    });
+  }
+  return points;
+}
+
+/* 月別の完了日数: 指定した年の1月〜12月（要素数12）。月別グラフ用。 */
+export function monthlyCompleteDays(data: CoreData, year: number): number[] {
+  const counts: number[] = [];
+  for (let m = 0; m < 12; m++) {
+    counts.push(periodStats(data, new Date(year, m, 1), new Date(year, m + 1, 0)).completeDays);
+  }
+  return counts;
+}
+
+/* 種目別の合計回数（横棒グラフ用）。「回」の種目だけを対象にし、
+   「秒」の種目は回数に混ぜない（従来の集計方針どおり）。
+   合計回数の多い順に並べ、上位 limit 件を返す。 */
+export function exerciseRepTotals(data: CoreData, limit = 10): ExerciseRepTotal[] {
+  return exerciseTotals(data)
+    .filter((t) => t.repsKnown && t.reps > 0)
+    .map((t) => ({ name: t.name, reps: t.reps }))
+    .sort((a, b) => {
+      if (b.reps !== a.reps) return b.reps - a.reps;
+      return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+    })
+    .slice(0, limit);
+}
+
+/* 年間ヒートマップ用: 指定した年の1月1日〜12月31日の各日について、
+   状態（完了/短縮で完了/休み/未完了/未来）を返す。状態の判定は
+   カレンダーの表示（dayStats の完了と dayKindFor）と揃えてある。 */
+export function heatmapDays(data: CoreData, year: number): HeatmapDay[] {
+  const today = todayDate();
+  const days: HeatmapDay[] = [];
+  let cursor = new Date(year, 0, 1);
+  const end = new Date(year, 11, 31);
+  while (cursor <= end) {
+    const key = dateKeyOf(cursor);
+    let state: HeatmapState;
+    if (cursor > today) {
+      state = 'future';
+    } else if (dayStats(data, key).complete) {
+      state = dayKindFor(data, key, cursor) === 'short' ? 'done-short' : 'done';
+    } else if (dayKindFor(data, key, cursor) === 'rest') {
+      state = 'rest';
+    } else {
+      state = 'missed';
+    }
+    days.push({ key, state });
+    cursor = addDays(cursor, 1);
+  }
+  return days;
 }
 
 /* 記録がある最も古い年。記録が無ければ null。 */

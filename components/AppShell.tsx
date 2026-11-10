@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { MenuView } from './MenuView';
 import { MyPageView } from './MyPageView';
+import { RankingView } from './RankingView';
 import { SettingsView } from './SettingsView';
 import { TodayView } from './TodayView';
 import { VIEW_NAMES, type ViewName } from '../lib/constants';
@@ -11,6 +12,7 @@ import { useStore } from '../lib/store';
 const NAV_ITEMS: { name: ViewName; label: string }[] = [
   { name: 'today', label: '今日' },
   { name: 'menu', label: 'メニュー' },
+  { name: 'ranking', label: 'ランキング' },
   { name: 'mypage', label: 'マイページ' },
   { name: 'settings', label: '設定' },
 ];
@@ -137,6 +139,13 @@ export function AppShell() {
             </div>
             <div hidden={view !== 'menu'}>
               <MenuView key={`menu-${resetNonce}`} editRequest={editRequest} />
+            </div>
+            <div hidden={view !== 'ranking'}>
+              <RankingView
+                key={`ranking-${resetNonce}`}
+                active={view === 'ranking'}
+                showView={showView}
+              />
             </div>
             <div hidden={view !== 'mypage'}>
               <MyPageView key={`mypage-${resetNonce}`} />

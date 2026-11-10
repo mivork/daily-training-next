@@ -40,6 +40,9 @@ export interface Settings {
   theme: '' | 'light' | 'dark';
   nickname: string;
   cardId: string;
+  /* オンラインランキングへの参加（opt-in）。既定はオフ。
+     旧データに項目が無い場合はオフとして扱う（後方互換）。 */
+  rankingOptIn: boolean;
 }
 
 export interface Profile {
@@ -129,6 +132,30 @@ export interface ExerciseTotal {
   repsKnown: boolean;
 }
 
+/* 種目別の合計回数（「回」の種目だけ。グラフ表示用） */
+export interface ExerciseRepTotal {
+  name: string;
+  reps: number;
+}
+
+/* 週ごとの推移グラフの1点（月曜はじまりの週） */
+export interface WeekTrendPoint {
+  mondayKey: string;
+  label: string;
+  completeDays: number;
+  trainingDays: number;
+  /* トレーニング日が無い週は null（グラフでは線を切る） */
+  rate: number | null;
+}
+
+/* 年間ヒートマップの1日の状態 */
+export type HeatmapState = 'done' | 'done-short' | 'rest' | 'missed' | 'future';
+
+export interface HeatmapDay {
+  key: string;
+  state: HeatmapState;
+}
+
 /* インポート検証の結果 */
 export type ImportResult =
   | {
@@ -143,6 +170,33 @@ export type ImportResult =
       };
     }
   | { ok: false; error: string };
+
+/* オンラインランキングの指標キー */
+export type RankingMetricKey = 'week' | 'streak' | 'total';
+
+/* ランキングに送る自分の集計値（dt_rankings の列に対応） */
+export interface RankingValues {
+  weekDone: number;
+  streak: number;
+  totalDays: number;
+  totalSets: number;
+}
+
+/* dt_rankings の1行（ランキング画面の表示用） */
+export interface RankingRow {
+  userId: string;
+  nickname: string;
+  weekDone: number;
+  streak: number;
+  totalDays: number;
+  totalSets: number;
+  updatedAt: string;
+}
+
+/* 順位を付けたランキング行。同点は同じ順位にする（競技順位方式） */
+export interface RankedRankingRow extends RankingRow {
+  rank: number;
+}
 
 /* Supabase に保存するスナップショット（prefs は端末ローカルのため含めない） */
 export interface CloudSnapshot {

@@ -21,6 +21,11 @@
   --color-badge-done-text: #ffffff;
   --color-badge-pending-bg: #f0e2d0;
   --color-badge-pending-text: #5f4636;
+  /* 年間ヒートマップの段階色（夕日色の濃淡＋休みのグレー） */
+  --color-heat-done: #c2410c;
+  --color-heat-short: #f0b27a;
+  --color-heat-rest: #cfc4bb;
+  --color-heat-missed: #f6e7d7;
 
   /* 余白 */
   --space-1: 0.25rem;
@@ -73,6 +78,10 @@
   --color-badge-done-text: #2b1503;
   --color-badge-pending-bg: #3d262b;
   --color-badge-pending-text: #e6cfba;
+  --color-heat-done: #ff922b;
+  --color-heat-short: #9c5a24;
+  --color-heat-rest: #5d444b;
+  --color-heat-missed: #38232a;
   --shadow-card: 0 1px 3px rgb(0 0 0 / 0.5);
 }
 /* リセットと基本要素のスタイル */
@@ -1025,44 +1034,99 @@ input[type="checkbox"] {
   border-bottom: none;
 }
 
-/* マイページ: 月別グラフ（CSSの横棒） */
-.bar-chart {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
+/* マイページ: グラフ（Chart.js）の描画エリア。
+   Chart.js は responsive + maintainAspectRatio: false で使うため、
+   親要素に高さを持たせる。種目別グラフは件数で高さを変える。 */
+.chart-box {
+  position: relative;
+  height: 15rem;
+  margin-bottom: var(--space-3);
 }
 
-.bar-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
+.chart-box--monthly {
+  height: 13rem;
 }
 
-.bar-row__label {
-  min-width: 6.5rem;
-  font-size: var(--font-size-s);
-  font-weight: 700;
+.chart-box--rows-few {
+  height: 9rem;
 }
 
-.bar-row__track {
-  flex: 1;
-  height: 1rem;
-  background-color: var(--color-surface-alt);
-  border-radius: var(--radius-pill);
-  overflow: hidden;
+.chart-box--rows-mid {
+  height: 13rem;
 }
 
-.bar-row__bar {
-  display: block;
-  height: 100%;
-  background-color: var(--color-primary);
-  border-radius: var(--radius-pill);
+.chart-box--rows-many {
+  height: 18rem;
 }
 
-.bar-row__value {
-  min-width: 3rem;
-  text-align: right;
-  font-weight: 700;
+/* マイページ: 年間ヒートマップ（1日1マス、列が週） */
+.heatmap-scroll {
+  overflow-x: auto;
+  padding-bottom: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.heatmap {
+  display: grid;
+  grid-template-rows: repeat(7, 0.8rem);
+  grid-auto-flow: column;
+  grid-auto-columns: 0.8rem;
+  gap: 3px;
+  width: max-content;
+}
+
+.heatmap__cell {
+  border-radius: 2px;
+  background-color: var(--color-heat-missed);
+}
+
+.heatmap__cell--done {
+  background-color: var(--color-heat-done);
+}
+
+.heatmap__cell--done-short {
+  background-color: var(--color-heat-short);
+}
+
+.heatmap__cell--rest {
+  background-color: var(--color-heat-rest);
+}
+
+.heatmap__cell--missed {
+  background-color: var(--color-heat-missed);
+}
+
+.heatmap__cell--future {
+  background-color: transparent;
+  box-shadow: inset 0 0 0 1px var(--color-border);
+}
+
+.heatmap__cell--blank {
+  background-color: transparent;
+}
+
+/* ヒートマップの凡例の色見本 */
+.legend__swatch {
+  display: inline-block;
+  width: 0.8rem;
+  height: 0.8rem;
+  border-radius: 2px;
+}
+
+.legend__swatch--done {
+  background-color: var(--color-heat-done);
+}
+
+.legend__swatch--done-short {
+  background-color: var(--color-heat-short);
+}
+
+.legend__swatch--rest {
+  background-color: var(--color-heat-rest);
+}
+
+.legend__swatch--missed {
+  background-color: var(--color-heat-missed);
 }
 
 /* マイページ: 累計 */
@@ -1344,6 +1408,134 @@ input[type="checkbox"] {
 .rival-table__top {
   background-color: var(--color-primary-soft);
   color: var(--color-primary-soft-text);
+  font-weight: 700;
+}
+
+/* オンラインランキング */
+.ranking-guide {
+  background-color: var(--color-surface-alt);
+  border-radius: var(--radius-m);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-3);
+}
+
+.ranking-guide p {
+  margin-bottom: var(--space-2);
+}
+
+.ranking-guide p:last-child {
+  margin-bottom: 0;
+}
+
+.ranking-guide--joined {
+  font-weight: 700;
+}
+
+/* 指標の切り替えタブ（ビューナビと同じ夕日色のピル） */
+.ranking-tabs {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.ranking-tabs__btn {
+  flex: 1;
+  min-height: var(--touch-target);
+  padding: var(--space-2) var(--space-3);
+  border: 2px solid var(--color-primary);
+  border-radius: var(--radius-pill);
+  background-color: var(--color-surface);
+  color: var(--color-primary);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ranking-tabs__btn:hover {
+  background-color: var(--color-primary-soft);
+}
+
+.ranking-tabs__btn--active {
+  background-color: var(--color-primary);
+  color: #ffffff;
+}
+
+.ranking-tabs__btn--active:hover {
+  background-color: var(--color-primary-hover);
+}
+
+[data-theme="dark"] .ranking-tabs__btn--active {
+  color: #2b1503;
+}
+
+.ranking-list {
+  list-style: none;
+  margin: 0 0 var(--space-3);
+  padding: 0;
+}
+
+.ranking-row {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.ranking-row:last-child {
+  border-bottom: none;
+}
+
+/* 自分の行のハイライト */
+.ranking-row--me {
+  background-color: var(--color-primary-soft);
+  border-radius: var(--radius-m);
+  font-weight: 700;
+}
+
+.ranking-row__rank {
+  flex: 0 0 3.25rem;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.ranking-row__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ranking-row__name {
+  overflow-wrap: anywhere;
+}
+
+.ranking-row__you {
+  color: var(--color-primary);
+  font-size: var(--font-size-s);
+  font-weight: 700;
+}
+
+.ranking-row__detail {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-s);
+}
+
+.ranking-row__value {
+  flex: 0 0 auto;
+  font-size: var(--font-size-l);
+  font-weight: 700;
+}
+
+/* 上位に入らなかった自分の順位（別枠） */
+.ranking-mine {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+  background-color: var(--color-primary-soft);
+  border: 2px dashed var(--color-primary);
+  border-radius: var(--radius-m);
   font-weight: 700;
 }
 
@@ -1646,6 +1838,14 @@ input[type="checkbox"] {
     padding-bottom: calc(var(--space-2) + env(safe-area-inset-bottom, 0px));
     background-color: var(--color-surface);
     border-top: 1px solid var(--color-border);
+    /* ナビが5項目になったため、間隔とボタンの余白・文字を少し詰めて1行に収める */
+    gap: var(--space-1);
+  }
+
+  .view-nav--bottom .view-nav__btn {
+    padding: var(--space-2) 0.125rem;
+    font-size: 0.75rem;
+    white-space: nowrap;
   }
 
   .app {

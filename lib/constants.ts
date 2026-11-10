@@ -1,4 +1,4 @@
-import type { Exercise, Prefs, Settings } from './types';
+import type { Exercise, Prefs, RankingMetricKey, Settings } from './types';
 
 /* localStorage のキー。バニラ版と完全に同じ（データ互換のため）。 */
 export const STORAGE_KEYS = {
@@ -54,6 +54,7 @@ export const DEFAULT_SETTINGS: Settings = {
   theme: '',
   nickname: '',
   cardId: '',
+  rankingOptIn: false,
 };
 
 /* アプリの細かな状態（案内の表示、マイページの期間選択、最終書き出し日）。
@@ -127,5 +128,20 @@ export const RIVAL_METRICS = [
 
 export type RivalMetricKey = (typeof RIVAL_METRICS)[number]['key'];
 
-export const VIEW_NAMES = ['today', 'menu', 'mypage', 'settings'] as const;
+export const VIEW_NAMES = ['today', 'menu', 'ranking', 'mypage', 'settings'] as const;
 export type ViewName = (typeof VIEW_NAMES)[number];
+
+/* オンラインランキングの指標。key は画面側の識別子、column は dt_rankings の列名。 */
+export const RANKING_METRICS: {
+  key: RankingMetricKey;
+  column: 'week_done' | 'streak' | 'total_days';
+  label: string;
+  unit: string;
+}[] = [
+  { key: 'week', column: 'week_done', label: '今週', unit: '日' },
+  { key: 'streak', column: 'streak', label: '連続', unit: '日' },
+  { key: 'total', column: 'total_days', label: '累計', unit: '日' },
+];
+
+/* ランキングに表示する上限件数 */
+export const RANKING_LIMIT = 50;

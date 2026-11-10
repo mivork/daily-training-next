@@ -29,6 +29,7 @@ export function SettingsView({ showView, resolvedTheme, onToggleTheme, onResetAl
     cloudConfigured,
     user,
     syncMessage,
+    rankingMessage,
     signIn,
     signUp,
     signOut,
@@ -207,6 +208,14 @@ export function SettingsView({ showView, resolvedTheme, onToggleTheme, onResetAl
     deleteAll();
     onResetAll();
     setDataStatus('全データを削除しました。');
+  };
+
+  /* ランキング参加トグル。オン/オフは設定に保存され、スナップショット同期にも含まれる。
+     実際の公開・削除は store 側のランキング反映で行う。 */
+  const onRankingToggle = (checked: boolean) => {
+    update({ settings: { ...data.settings, rankingOptIn: checked } });
+    notifySaved();
+    announce(checked ? 'ランキングに参加しました' : 'ランキングへの参加を取りやめました');
   };
 
   const handleAuth = async (mode: 'signin' | 'signup') => {
@@ -391,6 +400,43 @@ export function SettingsView({ showView, resolvedTheme, onToggleTheme, onResetAl
                   {syncMessage}
                 </p>
               )}
+
+              <h3 className="settings-group">ランキング</h3>
+              <label className="short-toggle">
+                <input
+                  type="checkbox"
+                  checked={data.settings.rankingOptIn}
+                  onChange={(e) => onRankingToggle(e.target.checked)}
+                />
+                <span className="short-toggle__text">
+                  <span className="short-toggle__label">ランキングに参加する</span>
+                  <span className="short-toggle__hint">
+                    オンにすると、ニックネームと記録（今週の完了日数・連続日数・累計の完了日数・総完了セット数）が、誰でも見られるランキングに公開されます。オフにすると、あなたの行はランキングから削除されます。
+                  </span>
+                </span>
+                <span
+                  className={`short-toggle__state${data.settings.rankingOptIn ? ' short-toggle__state--on' : ''}`}
+                  aria-hidden="true"
+                >
+                  {data.settings.rankingOptIn ? 'オン' : 'オフ'}
+                </span>
+              </label>
+              {data.settings.nickname.trim() === '' && (
+                <p className="settings-hint">
+                  ニックネームが未設定のため、ランキングには「ゲスト」と表示されます。表示名はマイページの「プロフィール」で設定できます。
+                </p>
+              )}
+              <div className="data-actions__row">
+                <button type="button" className="btn btn--small" onClick={() => showView('ranking')}>
+                  ランキングを見る
+                </button>
+              </div>
+              {rankingMessage && (
+                <p className="data-status" role="status">
+                  {rankingMessage}
+                </p>
+              )}
+
               <button
                 type="button"
                 className="btn"
@@ -410,7 +456,7 @@ export function SettingsView({ showView, resolvedTheme, onToggleTheme, onResetAl
           ) : (
             <>
               <p className="settings-hint">
-                ログインは任意です。しなくても全機能がこの端末で使えます。ログインすると、記録をクラウドに保存して別の端末とそろえられます。
+                ログインは任意です。しなくても全機能がこの端末で使えます。ログインすると、記録をクラウドに保存して別の端末とそろえられます。ログインすると、オンラインランキングにも参加できます（参加するかどうかはログイン後に選べます）。
               </p>
               <div className="form-grid">
                 <div className="field">

@@ -79,6 +79,8 @@ export function sanitizeSettings(raw: unknown): Settings {
     if (typeof raw.cardId === 'string' && raw.cardId !== '') {
       s.cardId = raw.cardId.slice(0, 64);
     }
+    /* ランキング参加は明示的に true のときだけオン。旧データに無ければオフ */
+    s.rankingOptIn = raw.rankingOptIn === true;
   }
   return s;
 }

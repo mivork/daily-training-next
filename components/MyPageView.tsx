@@ -1,8 +1,25 @@
 'use client';
 
 import { useState } from 'react';
+import dynamic from 'next/dynamic';
 import { Collapse } from './Collapse';
+import { Heatmap } from './Heatmap';
 import { RecordEditForm } from './RecordEditForm';
+
+/* グラフ（Chart.js）は重いので、初期表示の対象から外して遅延読み込みする */
+const chartLoading = () => <p className="empty-message">グラフを読み込み中…</p>;
+const WeeklyTrendChart = dynamic(
+  () => import('./StatsCharts').then((m) => m.WeeklyTrendChart),
+  { ssr: false, loading: chartLoading },
+);
+const MonthlyBarChart = dynamic(
+  () => import('./StatsCharts').then((m) => m.MonthlyBarChart),
+  { ssr: false, loading: chartLoading },
+);
+const ExerciseRepsChart = dynamic(
+  () => import('./StatsCharts').then((m) => m.ExerciseRepsChart),
+  { ssr: false, loading: chartLoading },
+);
 import { FILE_LIMITS, PROFILE_BIO_MAX, RIVAL_METRICS, type RivalMetricKey } from '../lib/constants';
 import {
   addDays,
@@ -22,9 +39,13 @@ import {
   calcStreak,
   dayKindFor,
   dayStats,
+  exerciseRepTotals,
   exerciseTotals,
+  heatmapDays,
+  monthlyCompleteDays,
   oldestRecordYear,
   periodStats,
+  weeklyTrend,
   weekProgressStats,
 } from '../lib/logic';
 import { sanitizeCard } from '../lib/sanitize';
@@ -178,14 +199,12 @@ export function MyPageView() {
   const prevMonthStart = new Date(shownYear, selMonth - 1, 1);
   const prevMonthEnd = new Date(shownYear, selMonth, 0);
 
-  /* 月別グラフ */
-  const monthCounts: number[] = [];
-  let maxCount = 0;
-  for (let m = 0; m < 12; m++) {
-    const s = periodStats(core, new Date(shownYear, m, 1), new Date(shownYear, m + 1, 0));
-    monthCounts.push(s.completeDays);
-    if (s.completeDays > maxCount) maxCount = s.completeDays;
-  }
+  /* グラフ用集計 */
+  const monthCounts = monthlyCompleteDays(core, shownYear);
+  const trend = weeklyTrend(core, 12);
+  const latestWeek = trend[trend.length - 1];
+  const repTotals = exerciseRepTotals(core);
+  const heatDays = heatmapDays(core, shownYear);
 
   const totals = allTimeTotals(core);
   const totalsList = exerciseTotals(core);
@@ -301,7 +320,9 @@ export function MyPageView() {
       <nav className="card quick-links mypage-layout__wide" aria-label="マイページの目次">
         <a className="quick-links__link" href="#sec-profile">プロフィール</a>
         <a className="quick-links__link" href="#sec-compare">期間の比較</a>
+        <a className="quick-links__link" href="#sec-weekly">週ごとの推移</a>
         <a className="quick-links__link" href="#sec-calendar">カレンダー</a>
+        <a className="quick-links__link" href="#sec-heatmap">記録マップ</a>
         <a className="quick-links__link" href="#sec-extotals">種目別の合計</a>
         <a className="quick-links__link" href="#sec-rivals">友達と競争</a>
         <a className="quick-links__link" href="#sec-totals">累計</a>
@@ -493,27 +514,33 @@ export function MyPageView() {
         </div>
       </section>
 
+      {/* 週ごとの推移 */}
+      <section className="card mypage-layout__wide" id="sec-weekly" aria-labelledby="weekly-heading">
+        <Collapse title="週ごとの推移" headingTag="h2">
+          <p className="settings-hint">
+            直近12週の完了日数（棒）と完了率（折れ線）です。完了率はトレーニング日だけで計算しています（休みの日は分母に入りません）。今週は今日までの分です。
+          </p>
+          <WeeklyTrendChart points={trend} />
+          {latestWeek && (
+            <p className="settings-hint">
+              今週は今日までで、トレーニング日{latestWeek.trainingDays}日のうち{latestWeek.completeDays}日完了
+              {latestWeek.rate !== null ? `（完了率${latestWeek.rate}%）` : ''}です。週ごとの正確な数値は「期間の比較」の週の比較でも見られます。
+            </p>
+          )}
+        </Collapse>
+      </section>
+
       {/* 月別グラフ */}
       <section className="card" aria-labelledby="chart-heading">
         <Collapse title="月別の完了日数" headingTag="h2">
           <p className="settings-hint">
-            {shownYear}年の月ごとの完了日数です。棒の長さは、その年でいちばん多い月に合わせています。数字が正確な値です。
+            {shownYear}年の月ごとの完了日数です。年の選択は「期間の比較」の年セレクトと共通です。
           </p>
-          <ul className="bar-chart">
+          <MonthlyBarChart year={shownYear} counts={monthCounts} />
+          <ul className="visually-hidden">
             {monthCounts.map((count, idx) => (
-              <li className="bar-row" key={idx}>
-                <span className="bar-row__label">
-                  {shownYear}年{idx + 1}月
-                </span>
-                <span className="bar-row__track">
-                  <span
-                    className="bar-row__bar"
-                    ref={(node) => {
-                      if (node) node.style.width = maxCount > 0 ? `${Math.round((count / maxCount) * 100)}%` : '0%';
-                    }}
-                  />
-                </span>
-                <span className="bar-row__value">{count}日</span>
+              <li key={idx}>
+                {shownYear}年{idx + 1}月: {count}日
               </li>
             ))}
           </ul>
@@ -627,6 +654,15 @@ export function MyPageView() {
         </div>
       </section>
 
+      {/* 年間ヒートマップ */}
+      <section className="card mypage-layout__wide" id="sec-heatmap" aria-labelledby="heatmap-heading">
+        <h2 id="heatmap-heading">{shownYear}年の記録マップ</h2>
+        <p className="settings-hint">
+          1年分の記録を1日1マスで表しています（列が週、月曜はじまり）。マスにカーソルを合わせる（長押しする）と日付と状態が出ます。横にスクロールできます。月ごとの詳しい状態は上のカレンダーで見られます。
+        </p>
+        <Heatmap days={heatDays} year={shownYear} />
+      </section>
+
       {/* 種目別の累計 */}
       <section className="card" id="sec-extotals" aria-labelledby="ex-totals-heading">
         <Collapse title="種目別の累計" headingTag="h2">
@@ -641,6 +677,14 @@ export function MyPageView() {
             ))}
           </ul>
           {totalsList.length === 0 && <p className="empty-message">まだ記録がありません。</p>}
+          {repTotals.length > 0 && (
+            <>
+              <p className="settings-hint">
+                合計回数のグラフです（回で数える種目だけ、上位{repTotals.length}件）。秒で数える種目は回数に混ぜていません。正確な数値は上のリストのとおりです。
+              </p>
+              <ExerciseRepsChart totals={repTotals} />
+            </>
+          )}
         </Collapse>
       </section>
 
