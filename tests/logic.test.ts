@@ -5,6 +5,7 @@ import {
   calcStreak,
   dayStats,
   exerciseRepTotals,
+  exerciseSetTotals,
   heatmapDays,
   monthlyCompleteDays,
   nextActionFor,
@@ -14,6 +15,7 @@ import {
   rankingNicknameOf,
   rankingValuesOf,
   rankRankingRows,
+  weekdayCompletionRates,
   weeklyTrend,
 } from '../lib/logic';
 import { clone, sanitizePrefs, sanitizeSettings } from '../lib/sanitize';
@@ -221,6 +223,111 @@ describe('exerciseRepTotals', () => {
 
   it('記録が無ければ空', () => {
     expect(exerciseRepTotals(makeCore({}))).toEqual([]);
+  });
+});
+
+describe('exerciseSetTotals', () => {
+  it('「秒」の種目も含めた全種目を合計セット数の多い順に返す', () => {
+    const core = makeCore({ [keyDaysAgo(0)]: completeRecord(), [keyDaysAgo(1)]: completeRecord() });
+    const totals = exerciseSetTotals(core);
+    /* 両種目とも 2日 × 2セット = 4セット。同数は名前順（プランク < 腕立て伏せ） */
+    expect(totals).toEqual([
+      { name: 'プランク', sets: 4 },
+      { name: '腕立て伏せ', sets: 4 },
+    ]);
+  });
+
+  it('スキップした種目のセットは数えない', () => {
+    const rec = completeRecord();
+    rec.done = { ex1: 2 };
+    rec.skipped = { ex2: true };
+    const totals = exerciseSetTotals(makeCore({ [keyDaysAgo(0)]: rec }));
+    expect(totals).toEqual([{ name: '腕立て伏せ', sets: 2 }]);
+  });
+
+  it('limit で上位だけを返す', () => {
+    const core = makeCore({ [keyDaysAgo(0)]: completeRecord() });
+    expect(exerciseSetTotals(core, 1)).toEqual([{ name: 'プランク', sets: 2 }]);
+  });
+
+  it('記録が無ければ空', () => {
+    expect(exerciseSetTotals(makeCore({}))).toEqual([]);
+  });
+});
+
+/* 指定した曜日（0=日〜6=土）の、weeksAgo 週前の日付キー */
+function keyForWeekday(weekday: number, weeksAgo: number): string {
+  const today = todayDate();
+  const back = (today.getDay() - weekday + 7) % 7;
+  return dateKeyOf(addDays(today, -(back + weeksAgo * 7)));
+}
+
+/* fromKey から今日までに、その曜日が何回あるか（期待値の算出用） */
+function countWeekdayInRange(fromKey: string, weekday: number): number {
+  const today = todayDate();
+  let cursor = parseKey(fromKey);
+  let count = 0;
+  while (cursor <= today) {
+    if (cursor.getDay() === weekday) count += 1;
+    cursor = addDays(cursor, 1);
+  }
+  return count;
+}
+
+describe('weekdayCompletionRates', () => {
+  it('月〜日の順で7件返し、記録が無ければ全曜日 rate は null', () => {
+    const rates = weekdayCompletionRates(makeCore({}));
+    expect(rates.map((r) => r.label)).toEqual(['月', '火', '水', '木', '金', '土', '日']);
+    expect(rates.every((r) => r.rate === null && r.trainingDays === 0)).toBe(true);
+  });
+
+  it('曜日ごとにトレーニング日の完了率を出す', () => {
+    const incomplete = completeRecord();
+    incomplete.done = { ex1: 1, ex2: 1 };
+    const earliest = keyForWeekday(1, 2);
+    const core = makeCore({
+      [keyForWeekday(1, 0)]: completeRecord(),
+      [keyForWeekday(1, 1)]: completeRecord(),
+      [earliest]: incomplete,
+    });
+    const monday = weekdayCompletionRates(core).find((r) => r.weekday === 1);
+    /* 範囲内の月曜のうち、記録のある3回はすべて月曜。完了は2回 */
+    const expected = countWeekdayInRange(earliest, 1);
+    expect(monday?.trainingDays).toBe(expected);
+    expect(monday?.completeDays).toBe(2);
+    expect(monday?.rate).toBe(Math.round((2 / expected) * 100));
+  });
+
+  it('保存済みの日種別が「休み」の日は分母に入らない', () => {
+    const restRec = completeRecord('rest');
+    restRec.done = {};
+    const core = makeCore({ [keyForWeekday(3, 0)]: restRec });
+    const wednesday = weekdayCompletionRates(core).find((r) => r.weekday === 3);
+    expect(wednesday?.trainingDays).toBe(0);
+    expect(wednesday?.rate).toBeNull();
+  });
+
+  it('設定でトレーニング日にしていない曜日は分母に入らない', () => {
+    /* 日曜（0）を外した設定で、月曜にだけ完了記録を置く */
+    const core = makeCore({ [keyForWeekday(1, 0)]: completeRecord() }, { trainingWeekdays: [1, 2, 3, 4, 5, 6] });
+    const rates = weekdayCompletionRates(core);
+    const sunday = rates.find((r) => r.weekday === 0);
+    expect(sunday?.trainingDays).toBe(0);
+    expect(sunday?.rate).toBeNull();
+    const monday = rates.find((r) => r.weekday === 1);
+    expect(monday?.rate).toBe(100);
+  });
+
+  it('トレーニング日なのに記録が無い日は未完了として分母に入る', () => {
+    /* 2週前の月曜に完了記録だけを置くと、それ以降の月曜（記録なし）も分母に入る */
+    const earliest = keyForWeekday(1, 2);
+    const core = makeCore({ [earliest]: completeRecord() });
+    const monday = weekdayCompletionRates(core).find((r) => r.weekday === 1);
+    const expected = countWeekdayInRange(earliest, 1);
+    expect(expected).toBeGreaterThanOrEqual(2);
+    expect(monday?.trainingDays).toBe(expected);
+    expect(monday?.completeDays).toBe(1);
+    expect(monday?.rate).toBe(Math.round((1 / expected) * 100));
   });
 });
 

@@ -11,6 +11,9 @@ import type {
   BodyData,
   BodyEntry,
   BodyField,
+  BodyPeriodComparison,
+  BodyPeriodFieldStats,
+  BodyPeriodKind,
   BodyPoint,
   BodySummary,
   CoreData,
@@ -18,6 +21,7 @@ import type {
   DayStats,
   Exercise,
   ExerciseRepTotal,
+  ExerciseSetTotal,
   ExerciseTotal,
   HeatmapDay,
   HeatmapState,
@@ -28,6 +32,7 @@ import type {
   RankingRow,
   RankingValues,
   WeekTrendPoint,
+  WeekdayRate,
 } from './types';
 
 /* ===== 日種別・短縮の判定 ===== */
@@ -497,6 +502,69 @@ export function exerciseRepTotals(data: CoreData, limit = 10): ExerciseRepTotal[
     .slice(0, limit);
 }
 
+/* 種目別の合計セット数（横棒グラフ用）。「秒」の種目も含めた全種目が対象で、
+   回数グラフと違い、プランクのような種目もそのまま比べられる。
+   exerciseTotals の並び（セット数の多い順、同数は名前順）を保ち、上位 limit 件を返す。 */
+export function exerciseSetTotals(data: CoreData, limit = 10): ExerciseSetTotal[] {
+  return exerciseTotals(data)
+    .map((t) => ({ name: t.name, sets: t.sets }))
+    .slice(0, Math.max(0, limit));
+}
+
+/* 曜日別の完了率（棒グラフ用）。月〜日の順で7件返す。
+   最も古い記録の日から今日までの各日について、トレーニング日かどうかを
+   isTrainingRecordDay（保存済みの日種別を優先し、無ければ設定の曜日）で判定し、
+   曜日ごとに「トレーニング日のうち完了した日の割合」を出す。
+   periodStats と同じく、トレーニング日なのに記録が無い日は未完了として分母に入る。
+   トレーニング日が無い曜日は rate が null。記録が無ければ全曜日 null。 */
+const WEEKDAY_ORDER: { weekday: number; label: string }[] = [
+  { weekday: 1, label: '月' },
+  { weekday: 2, label: '火' },
+  { weekday: 3, label: '水' },
+  { weekday: 4, label: '木' },
+  { weekday: 5, label: '金' },
+  { weekday: 6, label: '土' },
+  { weekday: 0, label: '日' },
+];
+
+export function weekdayCompletionRates(data: CoreData): WeekdayRate[] {
+  const training = new Map<number, number>();
+  const complete = new Map<number, number>();
+  WEEKDAY_ORDER.forEach(({ weekday }) => {
+    training.set(weekday, 0);
+    complete.set(weekday, 0);
+  });
+  const keys = Object.keys(data.records).sort();
+  if (keys.length > 0) {
+    const today = todayDate();
+    let cursor = parseKey(keys[0]);
+    let guard = 0;
+    while (cursor <= today && guard < 3660) {
+      guard += 1;
+      const key = dateKeyOf(cursor);
+      if (isTrainingRecordDay(data, key, cursor)) {
+        const day = cursor.getDay();
+        training.set(day, (training.get(day) ?? 0) + 1);
+        if (dayStats(data, key).complete) {
+          complete.set(day, (complete.get(day) ?? 0) + 1);
+        }
+      }
+      cursor = addDays(cursor, 1);
+    }
+  }
+  return WEEKDAY_ORDER.map(({ weekday, label }) => {
+    const trainingDays = training.get(weekday) ?? 0;
+    const completeDays = complete.get(weekday) ?? 0;
+    return {
+      weekday,
+      label,
+      trainingDays,
+      completeDays,
+      rate: trainingDays > 0 ? Math.round((completeDays / trainingDays) * 100) : null,
+    };
+  });
+}
+
 /* 年間ヒートマップ用: 指定した年の1月1日〜12月31日の各日について、
    状態（完了/短縮で完了/休み/未完了/未来）を返す。状態の判定は
    カレンダーの表示（dayStats の完了と dayKindFor）と揃えてある。 */
@@ -811,6 +879,90 @@ export function bodySummary(bodyData: BodyData, field: BodyField): BodySummary |
     vsFirst: round1(latest.value - first.value),
     count: points.length,
   };
+}
+
+/* ===== からだデータの期間比較 =====
+   今日を含む暦の期間（週は月曜はじまりの暦週・暦月・暦年）と、その直前の期間で
+   項目ごとの平均を比べる。トレーニング記録の期間比較と同じ期間の切り方。
+   平均はその期間に実測がある値だけから出す（測っていない日は数えない・補間しない）。 */
+
+/* 今日を含む期間とその直前の期間の範囲（開始日・終了日） */
+function bodyPeriodRange(
+  kind: BodyPeriodKind,
+  today: Date,
+): { currentStart: Date; currentEnd: Date; previousStart: Date; previousEnd: Date } {
+  const y = today.getFullYear();
+  const m = today.getMonth();
+  if (kind === 'week') {
+    const monday = startOfWeekMonday(today);
+    return {
+      currentStart: monday,
+      currentEnd: addDays(monday, 6),
+      previousStart: addDays(monday, -7),
+      previousEnd: addDays(monday, -1),
+    };
+  }
+  if (kind === 'month') {
+    return {
+      currentStart: new Date(y, m, 1),
+      currentEnd: new Date(y, m + 1, 0),
+      previousStart: new Date(y, m - 1, 1),
+      previousEnd: new Date(y, m, 0),
+    };
+  }
+  return {
+    currentStart: new Date(y, 0, 1),
+    currentEnd: new Date(y, 11, 31),
+    previousStart: new Date(y - 1, 0, 1),
+    previousEnd: new Date(y - 1, 11, 31),
+  };
+}
+
+const BODY_FIELDS: BodyField[] = ['weight', 'bodyFat', 'waist'];
+
+/* 項目ごとの期間比較: 今の期間の平均と前の期間の平均、その差、
+   今の期間の中での最初→最後の変化を出す。 */
+export function bodyPeriodComparison(
+  bodyData: BodyData,
+  kind: BodyPeriodKind,
+  today: Date = todayDate(),
+): BodyPeriodComparison {
+  const range = bodyPeriodRange(kind, today);
+  const currentStart = dateKeyOf(range.currentStart);
+  const currentEnd = dateKeyOf(range.currentEnd);
+  const previousStart = dateKeyOf(range.previousStart);
+  const previousEnd = dateKeyOf(range.previousEnd);
+  const round1 = (n: number) => Math.round(n * 10) / 10;
+  const avgOf = (points: BodyPoint[]): number | null =>
+    points.length === 0
+      ? null
+      : round1(points.reduce((sum, p) => sum + p.value, 0) / points.length);
+
+  const fields = {} as Record<BodyField, BodyPeriodFieldStats>;
+  BODY_FIELDS.forEach((field) => {
+    const points = bodySeries(bodyData, field);
+    const current = points.filter((p) => p.key >= currentStart && p.key <= currentEnd);
+    const previous = points.filter((p) => p.key >= previousStart && p.key <= previousEnd);
+    const currentAvg = avgOf(current);
+    const previousAvg = avgOf(previous);
+    const currentFirst = current.length > 0 ? current[0] : null;
+    const currentLast = current.length > 0 ? current[current.length - 1] : null;
+    fields[field] = {
+      currentAvg,
+      previousAvg,
+      diff: currentAvg !== null && previousAvg !== null ? round1(currentAvg - previousAvg) : null,
+      currentCount: current.length,
+      previousCount: previous.length,
+      currentFirst,
+      currentLast,
+      currentChange:
+        currentFirst !== null && currentLast !== null && current.length >= 2
+          ? round1(currentLast.value - currentFirst.value)
+          : null,
+    };
+  });
+
+  return { kind, currentStart, currentEnd, previousStart, previousEnd, fields };
 }
 
 /* BMI（体重 kg ÷ 身長 m の二乗、小数1桁）。

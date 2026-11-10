@@ -21,6 +21,14 @@ const ExerciseRepsChart = dynamic(
   () => import('./StatsCharts').then((m) => m.ExerciseRepsChart),
   { ssr: false, loading: chartLoading },
 );
+const ExerciseSetsChart = dynamic(
+  () => import('./StatsCharts').then((m) => m.ExerciseSetsChart),
+  { ssr: false, loading: chartLoading },
+);
+const WeekdayRateChart = dynamic(
+  () => import('./StatsCharts').then((m) => m.WeekdayRateChart),
+  { ssr: false, loading: chartLoading },
+);
 import { FILE_LIMITS, PROFILE_BIO_MAX, RIVAL_METRICS, type RivalMetricKey } from '../lib/constants';
 import {
   addDays,
@@ -41,11 +49,13 @@ import {
   dayKindFor,
   dayStats,
   exerciseRepTotals,
+  exerciseSetTotals,
   exerciseTotals,
   heatmapDays,
   monthlyCompleteDays,
   oldestRecordYear,
   periodStats,
+  weekdayCompletionRates,
   weeklyTrend,
   weekProgressStats,
 } from '../lib/logic';
@@ -205,6 +215,9 @@ export function MyPageView() {
   const trend = weeklyTrend(core, 12);
   const latestWeek = trend[trend.length - 1];
   const repTotals = exerciseRepTotals(core);
+  const setTotals = exerciseSetTotals(core);
+  const weekdayRates = weekdayCompletionRates(core);
+  const hasWeekdayData = weekdayRates.some((r) => r.trainingDays > 0);
   const heatDays = heatmapDays(core, shownYear);
 
   const totals = allTimeTotals(core);
@@ -323,6 +336,7 @@ export function MyPageView() {
         <a className="quick-links__link" href="#sec-body">からだ</a>
         <a className="quick-links__link" href="#sec-compare">期間の比較</a>
         <a className="quick-links__link" href="#sec-weekly">週ごとの推移</a>
+        <a className="quick-links__link" href="#sec-weekday">曜日別の完了率</a>
         <a className="quick-links__link" href="#sec-calendar">カレンダー</a>
         <a className="quick-links__link" href="#sec-heatmap">記録マップ</a>
         <a className="quick-links__link" href="#sec-extotals">種目別の合計</a>
@@ -535,6 +549,32 @@ export function MyPageView() {
         </Collapse>
       </section>
 
+      {/* 曜日別の完了率 */}
+      <section className="card" id="sec-weekday" aria-labelledby="weekday-heading">
+        <Collapse title="曜日別の完了率" headingTag="h2">
+          <p className="settings-hint">
+            曜日ごとに、トレーニング日のうち完了できた日の割合です。記録のあるいちばん古い日から今日までを通算しています（休みの日は分母に入りません）。
+          </p>
+          {hasWeekdayData ? (
+            <>
+              <WeekdayRateChart rates={weekdayRates} />
+              <ul className="visually-hidden">
+                {weekdayRates.map((r) => (
+                  <li key={r.weekday}>
+                    {r.label}曜日:{' '}
+                    {r.rate !== null
+                      ? `完了率${r.rate}%（完了${r.completeDays}日／トレーニング日${r.trainingDays}日）`
+                      : 'トレーニング日はありません'}
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : (
+            <p className="empty-message">まだ記録がありません。</p>
+          )}
+        </Collapse>
+      </section>
+
       {/* 月別グラフ */}
       <section className="card" aria-labelledby="chart-heading">
         <Collapse title="月別の完了日数" headingTag="h2">
@@ -688,6 +728,14 @@ export function MyPageView() {
                 合計回数のグラフです（回で数える種目だけ、上位{repTotals.length}件）。秒で数える種目は回数に混ぜていません。正確な数値は上のリストのとおりです。
               </p>
               <ExerciseRepsChart totals={repTotals} />
+            </>
+          )}
+          {setTotals.length > 0 && (
+            <>
+              <p className="settings-hint">
+                合計セット数のグラフです（秒で数える種目も含めた全種目、上位{setTotals.length}件）。正確な数値は上のリストのとおりです。
+              </p>
+              <ExerciseSetsChart totals={setTotals} />
             </>
           )}
         </Collapse>

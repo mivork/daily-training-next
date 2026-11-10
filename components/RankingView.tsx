@@ -1,11 +1,18 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { RANKING_LIMIT, RANKING_METRICS, type ViewName } from '../lib/constants';
 import { rankingMetricValue, rankRankingRows } from '../lib/logic';
 import { fetchMyStanding, fetchRankingTop, type MyStanding } from '../lib/ranking';
 import { useStore } from '../lib/store';
 import type { RankingMetricKey, RankingRow } from '../lib/types';
+
+/* グラフ（Chart.js）は重いので、初期表示の対象から外して遅延読み込みする */
+const RankingChart = dynamic(() => import('./StatsCharts').then((m) => m.RankingChart), {
+  ssr: false,
+  loading: () => <p className="empty-message">グラフを読み込み中…</p>,
+});
 
 interface RankingViewProps {
   /* 表示中のビューかどうか。開いたときに最新のランキングを読み直す */
@@ -72,6 +79,24 @@ export function RankingView({ active, showView }: RankingViewProps) {
   const metricDef = RANKING_METRICS.find((m) => m.key === metric) ?? RANKING_METRICS[0];
   const ranked = rows !== null ? rankRankingRows(rows, metric) : [];
 
+  /* グラフ用: 上位10件。自分がその外にいて順位が分かっている場合は、
+     自分の行も末尾に加えて位置が分かるようにする。 */
+  const chartEntries = ranked.slice(0, 10).map((row) => {
+    const mine = userId !== null && row.userId === userId;
+    return {
+      label: `${row.rank}位 ${row.nickname}${mine ? '（あなた）' : ''}`,
+      value: rankingMetricValue(row, metric),
+      mine,
+    };
+  });
+  if (standing && !chartEntries.some((e) => e.mine)) {
+    chartEntries.push({
+      label: `${standing.rank}位 ${standing.row.nickname}（あなた）`,
+      value: rankingMetricValue(standing.row, metric),
+      mine: true,
+    });
+  }
+
   return (
     <section className="card" aria-labelledby="ranking-heading">
       <h2 id="ranking-heading">ランキング</h2>
@@ -133,6 +158,15 @@ export function RankingView({ active, showView }: RankingViewProps) {
         <p className="empty-message">まだ参加者がいません。最初の参加者になりましょう！</p>
       ) : (
         <>
+          {chartEntries.length > 0 && (
+            <>
+              <p className="settings-hint">
+                上位{Math.min(ranked.length, 10)}件のグラフです（濃い色があなた）。
+                正確な順位と数値は下の一覧のとおりです。
+              </p>
+              <RankingChart entries={chartEntries} metricLabel={metricDef.label} unit={metricDef.unit} />
+            </>
+          )}
           <ol className="ranking-list">
             {ranked.map((row) => {
               const mine = userId !== null && row.userId === userId;

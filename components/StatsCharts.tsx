@@ -20,7 +20,7 @@ import {
 } from 'chart.js';
 import { Bar, Chart, Line } from 'react-chartjs-2';
 import { formatShortDate, parseKey } from '../lib/dates';
-import type { ExerciseRepTotal, WeekTrendPoint } from '../lib/types';
+import type { ExerciseRepTotal, ExerciseSetTotal, WeekTrendPoint, WeekdayRate } from '../lib/types';
 
 ChartJS.register(
   CategoryScale,
@@ -42,6 +42,8 @@ interface ChartColors {
   grid: string;
   primary: string;
   line: string;
+  /* 主色より淡い夕日色（ランキングで自分以外のバーに使う） */
+  soft: string;
 }
 
 /* 現在のテーマ（data-theme）に応じた色を CSS 変数から読む */
@@ -54,7 +56,17 @@ function readChartColors(): ChartColors {
     grid: v('--color-border', '#cbb59f'),
     primary: v('--color-primary', '#c2410c'),
     line: v('--color-focus', '#b45309'),
+    soft: v('--color-heat-short', '#f0b27a'),
   };
+}
+
+/* 横棒グラフの本数に応じた高さのクラス（回数グラフと共通の決め方） */
+function rowsBoxClass(count: number): string {
+  return count <= 3
+    ? 'chart-box chart-box--rows-few'
+    : count <= 6
+      ? 'chart-box chart-box--rows-mid'
+      : 'chart-box chart-box--rows-many';
 }
 
 /* data-theme の付け替え（テーマ切替）を監視して色を読み直す */
@@ -242,6 +254,66 @@ export function BodyLineChart({
   );
 }
 
+/* からだデータの期間比較: 今の期間の平均と前の期間の平均を並べた棒グラフ。
+   データが無い期間は null にしてバー自体を出さない（注記は呼び出し側のテキストで伝える）。 */
+export function BodyCompareBarChart({
+  current,
+  previous,
+  label,
+  unit,
+  summary,
+}: {
+  current: number | null;
+  previous: number | null;
+  label: string;
+  unit: string;
+  summary: string;
+}) {
+  const colors = useChartColors();
+  const data: ChartData<'bar', (number | null)[], string> = {
+    labels: ['今の期間', '前の期間'],
+    datasets: [
+      {
+        label: `${label}の平均`,
+        data: [current, previous],
+        backgroundColor: [colors.primary, colors.line],
+        borderRadius: 4,
+        maxBarThickness: 72,
+      },
+    ],
+  };
+  const options: ChartOptions<'bar'> = {
+    responsive: true,
+    maintainAspectRatio: false,
+    scales: {
+      x: {
+        ticks: { color: colors.muted },
+        grid: { color: colors.grid },
+      },
+      y: {
+        grace: '15%',
+        ticks: { color: colors.muted },
+        grid: { color: colors.grid },
+        title: { display: true, text: `${label}（${unit}）`, color: colors.muted },
+      },
+    },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          label: (item) =>
+            item.parsed.y === null ? '' : `${item.label}の平均: ${item.parsed.y}${unit}`,
+        },
+      },
+    },
+  };
+  return (
+    <div className="chart-box chart-box--monthly">
+      <Bar data={data} options={options} role="img" aria-label={summary} />
+    </div>
+  );
+}
+
 /* 月別の完了日数: 選択中の年の12か月の棒グラフ */
 export function MonthlyBarChart({ year, counts }: { year: number; counts: number[] }) {
   const colors = useChartColors();
@@ -337,12 +409,7 @@ export function ExerciseRepsChart({ totals }: { totals: ExerciseRepTotal[] }) {
       },
     },
   };
-  const boxClass =
-    totals.length <= 3
-      ? 'chart-box chart-box--rows-few'
-      : totals.length <= 6
-        ? 'chart-box chart-box--rows-mid'
-        : 'chart-box chart-box--rows-many';
+  const boxClass = rowsBoxClass(totals.length);
   const top = totals[0];
   return (
     <div className={boxClass}>
@@ -356,6 +423,195 @@ export function ExerciseRepsChart({ totals }: { totals: ExerciseRepTotal[] }) {
             : '種目別の合計回数のグラフです。'
         }
       />
+    </div>
+  );
+}
+
+/* 種目別の合計セット数: 横棒グラフ（「秒」の種目も含めた全種目） */
+export function ExerciseSetsChart({ totals }: { totals: ExerciseSetTotal[] }) {
+  const colors = useChartColors();
+  const data: ChartData<'bar', number[], string> = {
+    labels: totals.map((t) => t.name),
+    datasets: [
+      {
+        label: '合計セット数',
+        data: totals.map((t) => t.sets),
+        backgroundColor: colors.primary,
+        borderRadius: 4,
+      },
+    ],
+  };
+  const options: ChartOptions<'bar'> = {
+    indexAxis: 'y',
+    responsive: true,
+    maintainAspectRatio: false,
+    scales: {
+      x: {
+        min: 0,
+        ticks: { color: colors.muted, stepSize: 1 },
+        grid: { color: colors.grid },
+        title: { display: true, text: '合計セット数（セット）', color: colors.muted },
+      },
+      y: {
+        ticks: { color: colors.muted },
+        grid: { color: colors.grid },
+      },
+    },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          label: (item) => `合計 ${item.parsed.x}セット`,
+        },
+      },
+    },
+  };
+  const top = totals[0];
+  return (
+    <div className={rowsBoxClass(totals.length)}>
+      <Bar
+        data={data}
+        options={options}
+        role="img"
+        aria-label={
+          top
+            ? `種目別の合計セット数のグラフです。いちばん多いのは${top.name}の${top.sets}セットです。`
+            : '種目別の合計セット数のグラフです。'
+        }
+      />
+    </div>
+  );
+}
+
+/* 曜日別の完了率: 月〜日の棒グラフ。トレーニング日が無い曜日はバーを出さない。 */
+export function WeekdayRateChart({ rates }: { rates: WeekdayRate[] }) {
+  const colors = useChartColors();
+  const data: ChartData<'bar', (number | null)[], string> = {
+    labels: rates.map((r) => `${r.label}曜日`),
+    datasets: [
+      {
+        label: '完了率',
+        data: rates.map((r) => r.rate),
+        backgroundColor: colors.primary,
+        borderRadius: 4,
+        maxBarThickness: 56,
+      },
+    ],
+  };
+  const options: ChartOptions<'bar'> = {
+    responsive: true,
+    maintainAspectRatio: false,
+    scales: {
+      x: {
+        ticks: { color: colors.muted },
+        grid: { color: colors.grid },
+      },
+      y: {
+        min: 0,
+        max: 100,
+        ticks: { color: colors.muted, stepSize: 25 },
+        grid: { color: colors.grid },
+        title: { display: true, text: '完了率（%）', color: colors.muted },
+      },
+    },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          label: (item) => {
+            const r = rates[item.dataIndex];
+            if (!r || r.rate === null) return 'トレーニング日はありません';
+            return `完了率 ${r.rate}%（完了${r.completeDays}日／トレーニング日${r.trainingDays}日）`;
+          },
+        },
+      },
+    },
+  };
+  const best = rates
+    .filter((r) => r.rate !== null)
+    .reduce<WeekdayRate | null>((acc, r) => (acc === null || (r.rate ?? 0) > (acc.rate ?? 0) ? r : acc), null);
+  return (
+    <div className="chart-box chart-box--monthly">
+      <Bar
+        data={data}
+        options={options}
+        role="img"
+        aria-label={
+          best
+            ? `曜日別の完了率のグラフです。いちばん高いのは${best.label}曜日の${best.rate}%です。`
+            : '曜日別の完了率のグラフです。'
+        }
+      />
+    </div>
+  );
+}
+
+/* ランキングのグラフ: 1件分の表示データ（ラベルは「○位 ニックネーム」形式で
+   呼び出し側が組み立てる。mine は自分の行かどうか） */
+export interface RankingChartEntry {
+  label: string;
+  value: number;
+  mine: boolean;
+}
+
+/* ランキングの横棒グラフ: 自分は夕日の主色、他の人は淡い色で色分けする。
+   正確な順位・数値は併記される一覧（表）が正になる。 */
+export function RankingChart({
+  entries,
+  metricLabel,
+  unit,
+}: {
+  entries: RankingChartEntry[];
+  metricLabel: string;
+  unit: string;
+}) {
+  const colors = useChartColors();
+  const data: ChartData<'bar', number[], string> = {
+    labels: entries.map((e) => e.label),
+    datasets: [
+      {
+        label: metricLabel,
+        data: entries.map((e) => e.value),
+        backgroundColor: entries.map((e) => (e.mine ? colors.primary : colors.soft)),
+        borderRadius: 4,
+      },
+    ],
+  };
+  const options: ChartOptions<'bar'> = {
+    indexAxis: 'y',
+    responsive: true,
+    maintainAspectRatio: false,
+    scales: {
+      x: {
+        min: 0,
+        ticks: { color: colors.muted, stepSize: 1 },
+        grid: { color: colors.grid },
+        title: { display: true, text: `${metricLabel}（${unit}）`, color: colors.muted },
+      },
+      y: {
+        ticks: { color: colors.muted },
+        grid: { color: colors.grid },
+      },
+    },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          label: (item) => `${item.parsed.x}${unit}`,
+        },
+      },
+    },
+  };
+  const top = entries[0];
+  const mine = entries.find((e) => e.mine);
+  const summary = top
+    ? `${metricLabel}のランキングのグラフです。トップは${top.label}の${top.value}${unit}です。${
+        mine && mine !== top ? `あなたは${mine.label}で${mine.value}${unit}です。` : ''
+      }`
+    : `${metricLabel}のランキングのグラフです。`;
+  return (
+    <div className={rowsBoxClass(entries.length)}>
+      <Bar data={data} options={options} role="img" aria-label={summary} />
     </div>
   );
 }

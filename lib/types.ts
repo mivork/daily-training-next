@@ -169,6 +169,23 @@ export interface ExerciseRepTotal {
   reps: number;
 }
 
+/* 種目別の合計セット数（全種目。グラフ表示用） */
+export interface ExerciseSetTotal {
+  name: string;
+  sets: number;
+}
+
+/* 曜日別の完了率（月曜はじまりの並び。グラフ表示用） */
+export interface WeekdayRate {
+  /* Date.getDay() の値（0=日曜〜6=土曜） */
+  weekday: number;
+  label: string;
+  trainingDays: number;
+  completeDays: number;
+  /* トレーニング日が無い曜日は null */
+  rate: number | null;
+}
+
 /* 週ごとの推移グラフの1点（月曜はじまりの週） */
 export interface WeekTrendPoint {
   mondayKey: string;
@@ -256,6 +273,39 @@ export interface BodySummary {
   /* 記録期間の最初からの変化。測定が1回だけなら 0 */
   vsFirst: number;
   count: number;
+}
+
+/* からだデータの期間比較で使う期間の種類（暦週・暦月・暦年） */
+export type BodyPeriodKind = 'week' | 'month' | 'year';
+
+/* からだデータの期間比較（1項目分）。
+   平均はその期間に実測がある値だけの平均（補間しない、小数1桁）。 */
+export interface BodyPeriodFieldStats {
+  /* 今の期間の平均。実測が無ければ null */
+  currentAvg: number | null;
+  /* 前の期間の平均。実測が無ければ null */
+  previousAvg: number | null;
+  /* 今の平均 − 前の平均。どちらか無ければ null */
+  diff: number | null;
+  /* 今の期間・前の期間の実測の件数 */
+  currentCount: number;
+  previousCount: number;
+  /* 今の期間の最初と最後の測定。無ければ null */
+  currentFirst: BodyPoint | null;
+  currentLast: BodyPoint | null;
+  /* 今の期間の中での最初→最後の変化。測定が2回未満なら null */
+  currentChange: number | null;
+}
+
+/* からだデータの期間比較（期間の範囲と全項目分） */
+export interface BodyPeriodComparison {
+  kind: BodyPeriodKind;
+  /* 期間の範囲（日付キー、開始日〜終了日） */
+  currentStart: string;
+  currentEnd: string;
+  previousStart: string;
+  previousEnd: string;
+  fields: Record<BodyField, BodyPeriodFieldStats>;
 }
 
 /* Supabase に保存するスナップショット（prefs は端末ローカルのため含めない） */

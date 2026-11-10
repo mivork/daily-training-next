@@ -14,17 +14,35 @@ import {
   parseKey,
   todayDate,
 } from '../lib/dates';
-import { bmiOf, bodyChartSeries, bodySeries, bodySummary, recentBodyEntries } from '../lib/logic';
+import {
+  bmiOf,
+  bodyChartSeries,
+  bodyPeriodComparison,
+  bodySeries,
+  bodySummary,
+  recentBodyEntries,
+} from '../lib/logic';
 import { useStore } from '../lib/store';
-import type { BodyEntry, BodyField } from '../lib/types';
+import type { BodyEntry, BodyField, BodyPeriodKind } from '../lib/types';
 
 const chartLoading = () => <p className="empty-message">グラフを読み込み中…</p>;
 const BodyLineChart = dynamic(() => import('./StatsCharts').then((m) => m.BodyLineChart), {
   ssr: false,
   loading: chartLoading,
 });
+const BodyCompareBarChart = dynamic(
+  () => import('./StatsCharts').then((m) => m.BodyCompareBarChart),
+  { ssr: false, loading: chartLoading },
+);
 
 const FIELDS: BodyField[] = ['weight', 'bodyFat', 'waist'];
+
+/* 期間比較の切り替え（暦週・暦月・暦年） */
+const PERIOD_KINDS: { key: BodyPeriodKind; label: string }[] = [
+  { key: 'week', label: '週' },
+  { key: 'month', label: '月' },
+  { key: 'year', label: '年' },
+];
 
 /* 変化量の表示。プラスには + を付け、単位を添える（例: -0.5kg / +0.3%） */
 function deltaText(value: number, unit: string): string {
@@ -56,6 +74,8 @@ export function BodySection() {
     typeof data.bodyData[todayKey]?.waist === 'number' ? String(data.bodyData[todayKey].waist) : '',
   );
   const [status, setStatus] = useState('');
+  /* 期間比較の期間の種類（週/月/年） */
+  const [periodKind, setPeriodKind] = useState<BodyPeriodKind>('month');
 
   const loadDay = (key: string) => {
     setDateInput(key);
@@ -133,6 +153,23 @@ export function BodySection() {
   const bmi = weightSummary ? bmiOf(weightSummary.latest.value, data.settings.heightCm) : null;
   const recent = recentBodyEntries(data.bodyData, 10);
   const selectedEntry = isValidDateKey(dateInput) ? data.bodyData[dateInput] : undefined;
+
+  /* 期間比較（今の期間 vs 前の期間、平均で比べる） */
+  const comparison = bodyPeriodComparison(data.bodyData, periodKind);
+  const hasAnyBody = FIELDS.some((field) => bodySeries(data.bodyData, field).length > 0);
+  const periodHeads = (() => {
+    const cs = parseKey(comparison.currentStart);
+    const ce = parseKey(comparison.currentEnd);
+    const ps = parseKey(comparison.previousStart);
+    const pe = parseKey(comparison.previousEnd);
+    if (periodKind === 'week') {
+      return `${formatShortDate(cs)}〜${formatShortDate(ce)} と ${formatShortDate(ps)}〜${formatShortDate(pe)} の比較`;
+    }
+    if (periodKind === 'month') {
+      return `${cs.getFullYear()}年${cs.getMonth() + 1}月 と ${ps.getFullYear()}年${ps.getMonth() + 1}月 の比較`;
+    }
+    return `${cs.getFullYear()}年 と ${ps.getFullYear()}年 の比較`;
+  })();
 
   return (
     <section className="card mypage-layout__wide" id="sec-body" aria-labelledby="body-heading">
@@ -283,6 +320,95 @@ export function BodySection() {
           </div>
         );
       })}
+
+      {hasAnyBody && (
+        <>
+          <h3>期間で比べる</h3>
+          <p className="settings-hint">
+            今の期間と前の期間で、測った日の値の平均を比べます（測っていない日は数えません）。
+          </p>
+          <div className="ranking-tabs" role="group" aria-label="比べる期間">
+            {PERIOD_KINDS.map((p) => (
+              <button
+                key={p.key}
+                type="button"
+                className={`ranking-tabs__btn${periodKind === p.key ? ' ranking-tabs__btn--active' : ''}`}
+                aria-pressed={periodKind === p.key}
+                onClick={() => setPeriodKind(p.key)}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          <p className="compare-card__periods">{periodHeads}</p>
+          <table className="compare-table">
+            <thead>
+              <tr>
+                <th scope="col">項目</th>
+                <th scope="col">今の期間の平均</th>
+                <th scope="col">前の期間の平均</th>
+                <th scope="col">差</th>
+              </tr>
+            </thead>
+            <tbody>
+              {FIELDS.map((field) => {
+                const range = BODY_RANGES[field];
+                const stats = comparison.fields[field];
+                return (
+                  <tr key={field}>
+                    <th scope="row">
+                      {range.label}
+                      {stats.currentChange !== null && (
+                        <span className="compare-note">
+                          期間内の変化 {deltaText(stats.currentChange, range.unit)}
+                        </span>
+                      )}
+                    </th>
+                    <td>
+                      {stats.currentAvg !== null
+                        ? `${stats.currentAvg}${range.unit}（${stats.currentCount}回）`
+                        : 'データなし'}
+                    </td>
+                    <td>
+                      {stats.previousAvg !== null
+                        ? `${stats.previousAvg}${range.unit}（${stats.previousCount}回）`
+                        : 'データなし'}
+                    </td>
+                    <td>{stats.diff !== null ? deltaText(stats.diff, range.unit) : '—'}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+
+          {FIELDS.map((field) => {
+            const range = BODY_RANGES[field];
+            const stats = comparison.fields[field];
+            if (stats.currentAvg === null && stats.previousAvg === null) return null;
+            const avgText = (avg: number | null, count: number) =>
+              avg === null ? 'データがありません' : `平均${avg}${range.unit}（${count}回）`;
+            const summary = `${range.label}の平均を今の期間と前の期間で比べたグラフです。今の期間は${avgText(stats.currentAvg, stats.currentCount)}、前の期間は${avgText(stats.previousAvg, stats.previousCount)}です。`;
+            return (
+              <div className="body-chart" key={field}>
+                <h4>{range.label}の平均</h4>
+                <BodyCompareBarChart
+                  current={stats.currentAvg}
+                  previous={stats.previousAvg}
+                  label={range.label}
+                  unit={range.unit}
+                  summary={summary}
+                />
+                {(stats.currentAvg === null || stats.previousAvg === null) && (
+                  <p className="settings-hint">
+                    {stats.currentAvg === null ? '今の期間' : '前の期間'}は{range.label}
+                    のデータがないため、バーは1本だけです。
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </>
+      )}
 
       {recent.length > 0 && (
         <>
