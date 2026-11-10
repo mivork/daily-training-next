@@ -11,6 +11,8 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: '#c2410c',
+  /* 下部固定ナビの safe-area（env(safe-area-inset-bottom)）を効かせる */
+  viewportFit: 'cover',
 };
 
 /* 初回表示時のテーマちらつき防止: 保存済みテーマ（無ければ端末設定）を

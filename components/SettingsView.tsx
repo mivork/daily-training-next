@@ -223,7 +223,7 @@ export function SettingsView({ showView, resolvedTheme, onToggleTheme, onResetAl
   };
 
   return (
-    <>
+    <div className="settings-layout">
       <section className="card" aria-labelledby="settings-heading">
         <h2 id="settings-heading">設定</h2>
         <p className="data-status" role="status">
@@ -231,6 +231,7 @@ export function SettingsView({ showView, resolvedTheme, onToggleTheme, onResetAl
         </p>
 
         <h3 className="settings-group">スケジュール</h3>
+        <div className="settings-fieldset-grid">
         <fieldset className="settings-fieldset">
           <legend className="field__label">トレーニングする曜日</legend>
           <p className="settings-hint">外した曜日は「休みの日」になり、連続日数や完了率の対象外になります。</p>
@@ -305,6 +306,7 @@ export function SettingsView({ showView, resolvedTheme, onToggleTheme, onResetAl
             </div>
           </div>
         </fieldset>
+        </div>
 
         <h3 className="settings-group">トレーニング</h3>
         <fieldset className="settings-fieldset">
@@ -352,7 +354,7 @@ export function SettingsView({ showView, resolvedTheme, onToggleTheme, onResetAl
         <p className="settings-hint">画面の配色を切り替えます。</p>
         <button
           type="button"
-          className="btn btn--small"
+          className="btn btn--small theme-toggle"
           aria-pressed={resolvedTheme === 'dark'}
           onClick={onToggleTheme}
         >
@@ -555,6 +557,6 @@ export function SettingsView({ showView, resolvedTheme, onToggleTheme, onResetAl
           </p>
         </div>
       </section>
-    </>
+    </div>
   );
 }

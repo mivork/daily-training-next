@@ -361,6 +361,9 @@ export function TodayView({ showView, onEditExercise }: TodayViewProps) {
               オンで今日の目標は各種目1セット（今日だけの切替）。曜日ごとの自動短縮は「設定」で選べます。
             </span>
           </span>
+          <span className={`short-toggle__state${short ? ' short-toggle__state--on' : ''}`} aria-hidden="true">
+            {short ? 'オン' : 'オフ'}
+          </span>
         </label>
 
         <div className="today-actions">

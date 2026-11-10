@@ -297,8 +297,8 @@ export function MyPageView() {
   };
 
   return (
-    <>
-      <nav className="card quick-links" aria-label="マイページの目次">
+    <div className="mypage-layout">
+      <nav className="card quick-links mypage-layout__wide" aria-label="マイページの目次">
         <a className="quick-links__link" href="#sec-profile">プロフィール</a>
         <a className="quick-links__link" href="#sec-compare">期間の比較</a>
         <a className="quick-links__link" href="#sec-calendar">カレンダー</a>
@@ -308,7 +308,7 @@ export function MyPageView() {
       </nav>
 
       {/* プロフィール */}
-      <section className="card" id="sec-profile" aria-labelledby="profile-heading">
+      <section className="card mypage-layout__wide" id="sec-profile" aria-labelledby="profile-heading">
         <h2 id="profile-heading">プロフィール</h2>
         <div className="profile-view">
           <div className="profile-avatar">
@@ -398,7 +398,7 @@ export function MyPageView() {
       </section>
 
       {/* 期間の比較 */}
-      <section className="card" id="sec-compare" aria-labelledby="mypage-heading">
+      <section className="card mypage-layout__wide" id="sec-compare" aria-labelledby="mypage-heading">
         <h2 id="mypage-heading">期間の比較</h2>
         <div className="period-select">
           <div className="field">
@@ -521,7 +521,7 @@ export function MyPageView() {
       </section>
 
       {/* カレンダー */}
-      <section className="card" id="sec-calendar" aria-labelledby="calendar-heading">
+      <section className="card mypage-layout__wide" id="sec-calendar" aria-labelledby="calendar-heading">
         <h2 id="calendar-heading">カレンダー</h2>
         <p className="settings-hint">
           {shownYear}年{selMonth + 1}月のカレンダーです。記録がある日をタップすると、その日の記録を編集できます。
@@ -818,6 +818,6 @@ export function MyPageView() {
           </div>
         </dl>
       </section>
-    </>
+    </div>
   );
 }

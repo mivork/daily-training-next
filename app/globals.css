@@ -183,13 +183,52 @@ input[type="checkbox"] {
   padding: var(--space-4);
 }
 
+/* ヘッダー: 狭い画面ではタイトル・説明・テーマ切替を縦に積み、
+   テーマ切替は説明の下に右寄せで常に見える位置に置く。
+   40rem以上ではタイトル＋説明を左、テーマ切替を右に横並びにする。 */
 .app__header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: var(--space-4);
+  align-items: start;
   padding: var(--space-4) 0 var(--space-3);
 }
 
+.app__header h1 {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  min-width: 0;
+}
+
 .app__subtitle {
+  grid-column: 1 / -1;
+  grid-row: 2;
   color: var(--color-text-muted);
   margin-top: var(--space-1);
+}
+
+.app__header .theme-toggle {
+  grid-column: 2;
+  grid-row: 3;
+  justify-self: end;
+  margin-top: var(--space-2);
+}
+
+@media (min-width: 40rem) {
+  .app__header h1 {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .app__subtitle {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .app__header .theme-toggle {
+    grid-row: 1;
+    margin-top: 0;
+  }
 }
 
 .app__footer {
@@ -323,16 +362,97 @@ input[type="checkbox"] {
   margin-bottom: var(--space-3);
 }
 
-/* 短縮モード切替 */
+/* 短縮モード切替: チェックボックスをスイッチ型トグルとして見せる。
+   input 自体は残し、見た目だけをスイッチにする（フォーカス表示も input に出る）。 */
 .short-toggle {
   display: flex;
-  gap: var(--space-2);
-  align-items: flex-start;
+  gap: var(--space-3);
+  align-items: center;
   padding: var(--space-3) var(--space-4);
   background-color: var(--color-surface-alt);
   border-radius: var(--radius-m);
   margin-bottom: var(--space-3);
   cursor: pointer;
+}
+
+.short-toggle input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  flex: 0 0 auto;
+  width: 3.5rem;
+  height: 2rem;
+  min-height: 2rem;
+  padding: 0;
+  border: 2px solid var(--color-text-muted);
+  border-radius: var(--radius-pill);
+  background-color: var(--color-surface);
+  position: relative;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease-out,
+    border-color 0.15s ease-out;
+}
+
+/* スイッチのつまみ */
+.short-toggle input[type="checkbox"]::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0.1875rem;
+  width: 1.375rem;
+  height: 1.375rem;
+  border-radius: 50%;
+  background-color: var(--color-text-muted);
+  transform: translateY(-50%);
+  transition:
+    transform 0.15s ease-out,
+    background-color 0.15s ease-out;
+}
+
+.short-toggle input[type="checkbox"]:checked {
+  background-color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.short-toggle input[type="checkbox"]:checked::after {
+  background-color: #ffffff;
+  transform: translate(1.5rem, -50%);
+}
+
+/* ダークモードでは、明るいオレンジのスイッチの上で白いつまみが見えにくいので濃い色にする */
+[data-theme="dark"] .short-toggle input[type="checkbox"]:checked::after {
+  background-color: #2b1503;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .short-toggle input[type="checkbox"],
+  .short-toggle input[type="checkbox"]::after {
+    transition: none;
+  }
+}
+
+/* オン/オフの状態表示（スイッチの見た目に加えて文字でも区別する） */
+.short-toggle__state {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background-color: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-s);
+  font-weight: 700;
+  line-height: 2;
+}
+
+.short-toggle__state--on {
+  background-color: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #ffffff;
+}
+
+[data-theme="dark"] .short-toggle__state--on {
+  color: #2b1503;
 }
 
 .short-toggle__text {
@@ -964,9 +1084,35 @@ input[type="checkbox"] {
   font-weight: 700;
 }
 
-/* テーマ切り替え */
+/* テーマ切り替え: 丸いピル型ボタンにして、スマホでもボタンだと一目で分かるようにする。
+   左の丸印が、押された状態（ダークモード）では塗りつぶしになる。 */
 .theme-toggle {
-  margin-top: var(--space-3);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  border: 2px solid var(--color-primary);
+  border-radius: var(--radius-pill);
+  background-color: var(--color-surface);
+  color: var(--color-primary);
+  white-space: nowrap;
+}
+
+.theme-toggle::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid var(--color-primary);
+  border-radius: 50%;
+  background-color: var(--color-primary-soft);
+}
+
+.theme-toggle[aria-pressed="true"]::before {
+  background-color: var(--color-primary);
+}
+
+.theme-toggle:hover {
+  background-color: var(--color-primary-soft);
 }
 
 /* 今週の進捗（進捗カードの中） */
@@ -1495,17 +1641,107 @@ input[type="checkbox"] {
     bottom: 0;
     z-index: 20;
     margin-bottom: 0;
+    /* ホームバーのある端末でもボタンが隠れないよう、safe-area 分を下に足す */
     padding: var(--space-2);
+    padding-bottom: calc(var(--space-2) + env(safe-area-inset-bottom, 0px));
     background-color: var(--color-surface);
     border-top: 1px solid var(--color-border);
   }
 
   .app {
-    padding-bottom: 5.5rem;
+    padding-bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px));
   }
 
   /* トーストは固定ナビの上に出す */
   .toast {
-    bottom: 5.75rem;
+    bottom: calc(5.75rem + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* PCレイアウト（64rem以上）: 幅を活かして、単一カラムのスマホ表示から
+   横並び・2カラムのレイアウトに切り替える。 */
+@media (min-width: 64rem) {
+  :root {
+    --content-max-width: 72rem;
+  }
+
+  .app {
+    padding: var(--space-5) var(--space-6) var(--space-6);
+  }
+
+  /* 上部ナビは画面いっぱいに伸ばさず、押しやすい幅に収める */
+  .view-nav--top {
+    max-width: 40rem;
+  }
+
+  /* 今日画面: 種目リストを2カラムにする */
+  .exercise-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+
+  /* メニュー画面: テンプレート一覧を2カラムにする
+     （種目の管理リストはドラッグ並び替えの判定を保つため1カラムのまま） */
+  .template-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+
+  /* マイページ: カード群を2カラムにし、幅が要るものは2カラム分使う */
+  .mypage-layout {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-4);
+    align-items: start;
+  }
+
+  .mypage-layout > .card {
+    margin-bottom: 0;
+  }
+
+  .mypage-layout__wide {
+    grid-column: 1 / -1;
+  }
+
+  /* プロフィールの編集フォームは、広がりすぎないよう幅を抑える */
+  .profile-edit {
+    max-width: 42rem;
+  }
+
+  /* 期間の比較: 比較カードを2カラムにする */
+  .compare-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+
+  /* 設定画面: 設定カードは全幅、アカウントとデータのカードを2カラムに並べる */
+  .settings-layout {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-4);
+    align-items: start;
+  }
+
+  .settings-layout > .card {
+    margin-bottom: 0;
+  }
+
+  .settings-layout > .card:first-child {
+    grid-column: 1 / -1;
+  }
+
+  /* スケジュールの項目カード（fieldset）を2カラムにする */
+  .settings-fieldset-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-4);
+    align-items: start;
+  }
+
+  .settings-fieldset-grid .settings-fieldset + .settings-fieldset {
+    margin-top: 0;
   }
 }
