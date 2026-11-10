@@ -62,6 +62,8 @@ export const DEFAULT_SETTINGS: Settings = {
 export const DEFAULT_PREFS: Prefs = {
   schemaVersion: SCHEMA_VERSION,
   guideDismissed: false,
+  practiceGuideDismissed: false,
+  tutorialSeen: false,
   exportLastAt: '',
   mpYear: null,
   mpMonth: null,

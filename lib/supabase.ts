@@ -1,7 +1,8 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
-/* Supabase 連携は任意。環境変数が無い場合は「ローカルのみモード」になり、
-   クライアントは生成されず、アプリは localStorage だけで完全に動作する。 */
+/* Supabase 連携。環境変数が無い場合は「未設定モード」になり、クライアントは生成されない。
+   未設定モードではログインできないためアプリ本体には入れず、ゲート画面で案内を出す。
+   データ自体は localStorage にも保存される（ログイン時の同期先が Supabase）。 */
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '';

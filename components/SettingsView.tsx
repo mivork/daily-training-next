@@ -16,9 +16,11 @@ interface SettingsViewProps {
   resolvedTheme: 'light' | 'dark';
   onToggleTheme: () => void;
   onResetAll: () => void;
+  /* スライド式チュートリアルを再表示する（既存の初回ガイドとは別物） */
+  onShowTutorial: () => void;
 }
 
-export function SettingsView({ showView, resolvedTheme, onToggleTheme, onResetAll }: SettingsViewProps) {
+export function SettingsView({ showView, resolvedTheme, onToggleTheme, onResetAll, onShowTutorial }: SettingsViewProps) {
   const {
     data,
     update,
@@ -33,6 +35,7 @@ export function SettingsView({ showView, resolvedTheme, onToggleTheme, onResetAl
     signIn,
     signUp,
     signOut,
+    requestPasswordReset,
   } = useStore();
 
   const [settingsStatus, setSettingsStatus] = useState('');
@@ -231,6 +234,19 @@ export function SettingsView({ showView, resolvedTheme, onToggleTheme, onResetAl
     }
   };
 
+  /* パスワード再設定メールの送信（入力中のメールアドレス宛て） */
+  const handlePasswordReset = async () => {
+    setAuthBusy(true);
+    setAuthMessage('');
+    const result = await requestPasswordReset(email);
+    setAuthBusy(false);
+    if (result.error) {
+      setAuthMessage(result.error);
+    } else {
+      setAuthMessage(result.notice ?? '');
+    }
+  };
+
   return (
     <div className="settings-layout">
       <section className="card" aria-labelledby="settings-heading">
@@ -381,9 +397,20 @@ export function SettingsView({ showView, resolvedTheme, onToggleTheme, onResetAl
         >
           初回の案内を表示する
         </button>
+        <p className="settings-hint">アプリの使い方は、スライド式のチュートリアルでも確認できます。</p>
+        <button
+          type="button"
+          className="btn btn--small"
+          onClick={() => {
+            onShowTutorial();
+            announce('チュートリアルを表示しました');
+          }}
+        >
+          チュートリアルを見る
+        </button>
       </section>
 
-      {/* アカウント（クラウド同期・任意） */}
+      {/* アカウント（クラウド同期） */}
       <section className="card" aria-labelledby="account-heading">
         <h2 id="account-heading">アカウント（クラウド同期）</h2>
         {cloudConfigured ? (
@@ -456,7 +483,7 @@ export function SettingsView({ showView, resolvedTheme, onToggleTheme, onResetAl
           ) : (
             <>
               <p className="settings-hint">
-                ログインは任意です。しなくても全機能がこの端末で使えます。ログインすると、記録をクラウドに保存して別の端末とそろえられます。ログインすると、オンラインランキングにも参加できます（参加するかどうかはログイン後に選べます）。
+                この端末ではまだログインしていません（通常はアプリを開いたときのログイン画面から入ります）。ログインすると、記録がクラウドに保存され、別の端末でも同じデータが使えます。
               </p>
               <div className="form-grid">
                 <div className="field">
@@ -498,8 +525,18 @@ export function SettingsView({ showView, resolvedTheme, onToggleTheme, onResetAl
                 </button>
               </div>
               <p className="settings-hint">
-                新規登録すると確認メールが届きます。メール内のリンクを開いて登録を完了してから、ログインしてください。
+                はじめての方は「新規登録」を押すと、そのままログインして使い始められます（確認メールは届きません）。
               </p>
+              <div className="data-actions__row">
+                <button
+                  type="button"
+                  className="btn btn--small"
+                  disabled={authBusy}
+                  onClick={() => void handlePasswordReset()}
+                >
+                  パスワード再設定のメールを送る
+                </button>
+              </div>
               {authMessage && (
                 <p className="data-status" role="status">
                   {authMessage}
@@ -509,7 +546,7 @@ export function SettingsView({ showView, resolvedTheme, onToggleTheme, onResetAl
           )
         ) : (
           <p className="settings-hint">
-            いまはローカルのみモードです（クラウド連携は未設定）。データはこのブラウザの中にだけ保存され、全機能が使えます。
+            この環境ではクラウド連携が未設定のため、アカウント機能は使えません。
           </p>
         )}
       </section>

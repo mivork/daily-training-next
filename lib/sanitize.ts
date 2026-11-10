@@ -91,6 +91,10 @@ export function sanitizePrefs(raw: unknown): Prefs {
   if (isPlainObject(raw)) {
     p.schemaVersion = SCHEMA_VERSION;
     p.guideDismissed = raw.guideDismissed === true;
+    /* 実践型ガイドを閉じたかどうか。旧データに項目が無ければ未表示（false） */
+    p.practiceGuideDismissed = raw.practiceGuideDismissed === true;
+    /* スライド式チュートリアルを見たかどうか。旧データに項目が無ければ未表示（false） */
+    p.tutorialSeen = raw.tutorialSeen === true;
     p.startPresetDone = raw.startPresetDone === true;
     if (typeof raw.exportLastAt === 'string') p.exportLastAt = raw.exportLastAt.slice(0, 40);
     if (typeof raw.mpYear === 'number' && Number.isFinite(raw.mpYear)) {

@@ -7,14 +7,16 @@ import {
   exerciseRepTotals,
   heatmapDays,
   monthlyCompleteDays,
+  nextActionFor,
   periodStats,
   pickAdviceKey,
+  practiceGuideProgress,
   rankingNicknameOf,
   rankingValuesOf,
   rankRankingRows,
   weeklyTrend,
 } from '../lib/logic';
-import { clone, sanitizeSettings } from '../lib/sanitize';
+import { clone, sanitizePrefs, sanitizeSettings } from '../lib/sanitize';
 import {
   buildExportPayload,
   decodeTransferCode,
@@ -388,7 +390,7 @@ describe('validateImportData', () => {
     settings: clone(DEFAULT_SETTINGS),
     profile: { image: '', bio: '' },
     rivals: [],
-    prefs: { schemaVersion: 1, guideDismissed: false, exportLastAt: '', mpYear: null, mpMonth: null, mpWeek: '', startPresetDone: false },
+    prefs: { schemaVersion: 1, guideDismissed: false, practiceGuideDismissed: false, tutorialSeen: false, exportLastAt: '', mpYear: null, mpMonth: null, mpWeek: '', startPresetDone: false },
   };
 
   it('バニラ版の書き出し形式を受け付ける', () => {
@@ -418,5 +420,114 @@ describe('validateImportData', () => {
     (payload.exercises[0] as unknown as Record<string, unknown>).amount = '20';
     const result = validateImportData(payload);
     expect(result.ok).toBe(false);
+  });
+});
+
+describe('nextActionFor', () => {
+  function todayRecord(done: DayRecord['done'], patch: Partial<DayRecord> = {}): DayRecord {
+    return {
+      done,
+      short: false,
+      dayType: 'training',
+      targets: { ex1: 2, ex2: 2 },
+      names: { ex1: '腕立て伏せ', ex2: 'プランク' },
+      amounts: { ex1: 20, ex2: 30 },
+      units: { ex1: '回', ex2: '秒' },
+      ...patch,
+    };
+  }
+
+  it('記録が無ければ最初の種目の1セット目で、その次も予告する', () => {
+    const core = makeCore({});
+    const action = nextActionFor(core, keyDaysAgo(0));
+    expect(action).not.toBeNull();
+    expect(action?.exerciseId).toBe('ex1');
+    expect(action?.name).toBe('腕立て伏せ');
+    expect(action?.setIndex).toBe(0);
+    expect(action?.done).toBe(0);
+    expect(action?.target).toBe(2);
+    expect(action?.amount).toBe(20);
+    expect(action?.unit).toBe('回');
+    expect(action?.after?.exerciseId).toBe('ex2');
+  });
+
+  it('途中まで記録していれば同じ種目の次のセットになる', () => {
+    const core = makeCore({ [keyDaysAgo(0)]: todayRecord({ ex1: 1 }) });
+    const action = nextActionFor(core, keyDaysAgo(0));
+    expect(action?.exerciseId).toBe('ex1');
+    expect(action?.setIndex).toBe(1);
+    expect(action?.done).toBe(1);
+  });
+
+  it('最初の種目が終わっていれば次の種目になり、予告は無くなる', () => {
+    const core = makeCore({ [keyDaysAgo(0)]: todayRecord({ ex1: 2 }) });
+    const action = nextActionFor(core, keyDaysAgo(0));
+    expect(action?.exerciseId).toBe('ex2');
+    expect(action?.setIndex).toBe(0);
+    expect(action?.after).toBeNull();
+  });
+
+  it('スキップした種目は対象から外れる', () => {
+    const core = makeCore({
+      [keyDaysAgo(0)]: todayRecord({}, { skipped: { ex1: true } }),
+    });
+    const action = nextActionFor(core, keyDaysAgo(0));
+    expect(action?.exerciseId).toBe('ex2');
+  });
+
+  it('すべて完了していれば null', () => {
+    const core = makeCore({ [keyDaysAgo(0)]: completeRecord() });
+    expect(nextActionFor(core, keyDaysAgo(0))).toBeNull();
+  });
+
+  it('短縮日は目標が shortGoalSets で絞られた種目が対象になる', () => {
+    const core = makeCore({ [keyDaysAgo(0)]: todayRecord({ ex1: 1 }, { short: true }) });
+    const action = nextActionFor(core, keyDaysAgo(0));
+    /* 短縮では ex1 は1セットで完了扱いのため、次は ex2 の1セット目（目標1） */
+    expect(action?.exerciseId).toBe('ex2');
+    expect(action?.target).toBe(1);
+    expect(action?.setIndex).toBe(0);
+  });
+});
+
+describe('practiceGuideProgress', () => {
+  it('記録が無ければステップ1', () => {
+    const core = makeCore({});
+    const progress = practiceGuideProgress(core, keyDaysAgo(0));
+    expect(progress.current).toBe(1);
+    expect(progress.step1Done).toBe(false);
+    expect(progress.step2Done).toBe(false);
+  });
+
+  it('今日の記録ができていればステップ2（セットはまだ）', () => {
+    const core = makeCore({
+      [keyDaysAgo(0)]: { done: {}, short: false, dayType: 'training' },
+    });
+    const progress = practiceGuideProgress(core, keyDaysAgo(0));
+    expect(progress.current).toBe(2);
+    expect(progress.step1Done).toBe(true);
+    expect(progress.step2Done).toBe(false);
+  });
+
+  it('1セットでも記録すればステップ3', () => {
+    const core = makeCore({
+      [keyDaysAgo(0)]: { done: { ex1: 1 }, short: false, dayType: 'training' },
+    });
+    const progress = practiceGuideProgress(core, keyDaysAgo(0));
+    expect(progress.current).toBe(3);
+    expect(progress.step1Done).toBe(true);
+    expect(progress.step2Done).toBe(true);
+  });
+});
+
+describe('sanitizePrefs の practiceGuideDismissed', () => {
+  it('既定は false で、旧データ（項目なし）でも false になる', () => {
+    expect(sanitizePrefs({}).practiceGuideDismissed).toBe(false);
+    expect(sanitizePrefs(null).practiceGuideDismissed).toBe(false);
+  });
+
+  it('true のときだけ true になる', () => {
+    expect(sanitizePrefs({ practiceGuideDismissed: true }).practiceGuideDismissed).toBe(true);
+    expect(sanitizePrefs({ practiceGuideDismissed: 'yes' }).practiceGuideDismissed).toBe(false);
   });
 });

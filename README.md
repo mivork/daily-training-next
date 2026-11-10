@@ -2,7 +2,7 @@
 
 毎日続ける自重トレーニングのための、記録用Webアプリです。バニラ版（HTML/CSS/JS）の機能を、Next.js（App Router）+ TypeScript + React で作り直したものです。
 
-小学生・学生・大学生・大人まで、誰でも使えます。アカウント登録は不要で、ブラウザで開くだけで使えます。ログイン（任意）をすると、記録をクラウドに保存して別の端末とそろえられます。
+小学生・学生・大学生・大人まで、誰でも使えます。使うにはアカウント登録とログインが必要です（ログインしないとアプリ本体には入れません）。記録はクラウドに保存され、別の端末でも同じデータが使えます。
 
 ## 動かし方
 
@@ -33,13 +33,13 @@ npm run lint     # ESLint
 
 ## データについて
 
-- 基本はバニラ版と同じく、このブラウザの中（localStorage）にだけ保存されます。
+- データは、このブラウザの中（localStorage）とクラウド（Supabase）の両方に保存されます。端末に残っているデータは、初回ログイン時にクラウドと突き合わせて新しい方を採用するので、ゲート化で消えることはありません。
 - localStorage のキーと書き出しJSONの形式はバニラ版と互換です（`dailyTraining.exercises.v1` など）。バニラ版で書き出したJSONを、そのままこの版で読み込めます。
 - ログイン中は、種目・記録・設定・プロフィール・友達のカードが Supabase にも保存されます（次節）。画面の好み（prefs: 案内の表示状態・マイページの期間選択・最終書き出し日）は端末ローカルのままです。
 
-## Supabase の準備（任意ログイン・クラウド同期）
+## Supabase の準備（ログイン・クラウド同期）
 
-環境変数が無い場合は「ローカルのみモード」で完全に動作します。使う場合は、Supabase プロジェクトを用意して次を行ってください。
+このアプリはログイン必須です。環境変数が無い場合は「未設定モード」になり、ログインできないためアプリ本体には入れません（ゲート画面で案内が出ます）。Supabase プロジェクトを用意して次を行ってください。
 
 ### 1. テーブルと RLS ポリシー
 
@@ -69,7 +69,8 @@ create policy "dt_snapshots_delete_own" on public.dt_snapshots
 ### 2. Auth の設定
 
 - Authentication で Email プロバイダを有効にします。
-- 「Confirm email」はオンの前提でUI文言を書いています（新規登録時に確認メールが届き、リンクを開いてからログインする流れ）。
+- 「Confirm email」はオフにしてください。新規登録すると確認メールなしでそのままログイン状態になり、アプリを使い始められます。
+- URL Configuration の Site URL と Redirect URLs に、アプリのオリジン（本番URL）を登録してください。パスワード再設定メールのリンクは、そのオリジンへ戻ります。
 
 ### 3. 環境変数
 
@@ -84,12 +85,13 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon public key>
 
 - ログイン時に、クラウド側とローカル側の更新時刻を比べて、新しい方を採用します。
 - ログイン中の変更は、少し間を置いて（デバウンスして）自動でクラウドへ保存します。
-- ログアウトしても、この端末のデータはそのまま残ります。
+- ログアウトするとログイン画面（ゲート）に戻ります。この端末のデータはそのまま残り、次回ログイン時に同期されます。
+- パスワードを忘れた場合は、ゲート画面から再設定メールを送れます。リンクから戻ると、新しいパスワードの設定画面が先に表示されます。
 
 ## ファイル構成
 
 - `app/` — ルートレイアウト（メタデータ・テーマ初期化）とページ、`globals.css`（夕日テーマのCSS変数＋バニラ版CSSの移植）
-- `components/` — 画面部品（AppShell / TodayView / MenuView / MyPageView / SettingsView / RecordEditForm / Collapse）
+- `components/` — 画面部品（AppShell / AuthGate / TodayView / MenuView / RankingView / MyPageView / SettingsView / RecordEditForm / Collapse / StatsCharts / Heatmap）
 - `lib/types.ts` — 型定義
 - `lib/constants.ts` — 定数（ストレージキー、シード種目、テンプレート、アドバイス文言）
 - `lib/dates.ts` — 日付ユーティリティ
@@ -98,6 +100,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon public key>
 - `lib/transfer.ts` — 書き出し／インポート検証と引き継ぎコード（Base64）
 - `lib/storage.ts` — localStorage の読み書き・退避
 - `lib/supabase.ts` — Supabase クライアント（環境変数が無い場合は null）
+- `lib/auth.ts` — 認証エラーを利用者向けの日本語文言に変換する純粋関数
 - `lib/store.tsx` — 全体状態（Context）とクラウド同期
 - `lib/files.ts` — ファイルダウンロード・画像処理
 - `tests/logic.test.ts` — ロジックのテスト（vitest）

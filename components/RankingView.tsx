@@ -63,7 +63,7 @@ export function RankingView({ active, showView }: RankingViewProps) {
       <section className="card" aria-labelledby="ranking-heading">
         <h2 id="ranking-heading">ランキング</h2>
         <p className="settings-hint">
-          ランキングはオンライン版で使える機能です。いまはローカルのみモード（クラウド連携が未設定）のため、この機能は使えません。
+          ランキングはオンライン版で使える機能です。この環境ではクラウド連携が未設定のため、この機能は使えません。
         </p>
       </section>
     );
@@ -82,7 +82,7 @@ export function RankingView({ active, showView }: RankingViewProps) {
       {/* 参加への案内 */}
       {!user ? (
         <div className="ranking-guide">
-          <p>ランキングに参加するには、設定画面でログインしてください（参加は任意です）。</p>
+          <p>ランキングへの参加は、設定画面のアカウント欄でオンにできます（参加するかどうかは自由に選べます）。</p>
           <button type="button" className="btn btn--small" onClick={() => showView('settings')}>
             設定を開く
           </button>

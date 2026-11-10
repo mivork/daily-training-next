@@ -10,6 +10,7 @@ import type {
   ExerciseTotal,
   HeatmapDay,
   HeatmapState,
+  NextAction,
   PeriodStats,
   RankedRankingRow,
   RankingMetricKey,
@@ -565,6 +566,54 @@ export function todayScheduleText(
   }
   if (reason) text += '（' + reason + '）';
   return text;
+}
+
+/* ===== 「次にやること」の算出 =====
+   今日の種目（現在の種目リストの並び順）の中で、スキップしておらず
+   まだ目標セット数に届いていない最初の種目を「次にやること」とする。
+   その次に控えている未完了の種目も after に入れる（予告表示用）。
+   すべて完了またはスキップ済みなら null。
+   目標・完了数・名前は dayStats のスナップショット基準に揃える。 */
+export function nextActionFor(data: CoreData, key: string): NextAction | null {
+  const stats = dayStats(data, key);
+  const byId = new Map(stats.entries.map((e) => [e.id, e]));
+  let next: NextAction | null = null;
+  for (const ex of data.exercises) {
+    const entry = byId.get(ex.id);
+    if (!entry || entry.skipped || entry.target <= 0 || entry.done >= entry.target) continue;
+    if (next === null) {
+      next = {
+        exerciseId: ex.id,
+        name: entry.name,
+        setIndex: entry.done,
+        done: entry.done,
+        target: entry.target,
+        amount: entry.amount,
+        unit: entry.unit,
+        after: null,
+      };
+    } else {
+      next.after = { exerciseId: ex.id, name: entry.name };
+      break;
+    }
+  }
+  return next;
+}
+
+/* ===== 初回の実践型ガイドのステップ算出 =====
+   ステップ1: 今日の種目を確認する（今日の記録がまだ無い間）
+   ステップ2: 最初の種目の1セット目を押してみる（記録はあるが完了セットはまだ無い間）
+   ステップ3: 記録されたことを確認する（今日の完了セットが1つ以上ある）
+   通常の操作（記録を作る・セットを記録する）だけで自動的に進む。 */
+export function practiceGuideProgress(
+  data: CoreData,
+  key: string,
+): { current: 1 | 2 | 3; step1Done: boolean; step2Done: boolean } {
+  const stats = dayStats(data, key);
+  const step2Done = stats.totalDone > 0;
+  const step1Done = step2Done || getRecord(data, key) !== null;
+  const current: 1 | 2 | 3 = step2Done ? 3 : step1Done ? 2 : 1;
+  return { current, step1Done, step2Done };
 }
 
 /* 種目がはじめの6種目のままかどうか（開始プリセット表示判定） */

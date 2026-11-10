@@ -53,6 +53,12 @@ export interface Profile {
 export interface Prefs {
   schemaVersion: number;
   guideDismissed: boolean;
+  /* 初回の実践型ガイド（ステップ案内）を閉じたかどうか。
+     旧データに項目が無い場合は false（未表示）として扱う（後方互換）。 */
+  practiceGuideDismissed: boolean;
+  /* スライド式チュートリアルを見た（最後まで進めた、またはスキップした）かどうか。
+     旧データに項目が無い場合は false（未表示）として扱う（後方互換）。 */
+  tutorialSeen: boolean;
   exportLastAt: string;
   mpYear: number | null;
   mpMonth: number | null;
@@ -196,6 +202,21 @@ export interface RankingRow {
 /* 順位を付けたランキング行。同点は同じ順位にする（競技順位方式） */
 export interface RankedRankingRow extends RankingRow {
   rank: number;
+}
+
+/* 「次にやること」カードの内容。今日まだ終わっていない最初の種目と、
+   その次に控えている種目（予告用）を表す。すべて終わっていれば null を返す算出側の都合で、
+   after は「その次」の種目が無ければ null。 */
+export interface NextAction {
+  exerciseId: string;
+  name: string;
+  /* 次に記録するセットの番号（0 はじまり） */
+  setIndex: number;
+  done: number;
+  target: number;
+  amount: number | null;
+  unit: string | null;
+  after: { exerciseId: string; name: string } | null;
 }
 
 /* Supabase に保存するスナップショット（prefs は端末ローカルのため含めない） */

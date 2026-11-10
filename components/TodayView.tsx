@@ -13,7 +13,9 @@ import {
   isInitialMenu,
   isSkippedIn,
   isTrainingRecordDay,
+  nextActionFor,
   pickAdvice,
+  practiceGuideProgress,
   refreshSnapshot,
   todayScheduleText,
   todayTargetFor,
@@ -41,8 +43,17 @@ export function TodayView({ showView, onEditExercise }: TodayViewProps) {
     key: string;
     record: DayRecord | null;
   } | null>(null);
+  /* セット記録直後の「元に戻す」バーの対象（誤操作防止） */
+  const [lastSetAction, setLastSetAction] = useState<{
+    exerciseId: string;
+    prevDone: number;
+    message: string;
+  } | null>(null);
   const [celebrating, setCelebrating] = useState(false);
   const completeUndoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const setUndoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /* 同じセットボタンの連続タップ（記録→取り消しの往復）を防ぐガード */
+  const lastToggleRef = useRef<{ exerciseId: string; setIndex: number; at: number } | null>(null);
   const prevCompleteRef = useRef<boolean | null>(null);
 
   const date = todayDate();
@@ -53,6 +64,30 @@ export function TodayView({ showView, onEditExercise }: TodayViewProps) {
   const kind = dayKindFor(core, key, date);
   const streak = calcStreak(core);
   const weekProgress = weekProgressStats(core);
+
+  /* 「次にやること」: 休みの日には出さない */
+  const nextAction = kind === 'rest' ? null : nextActionFor(core, key);
+
+  /* 初回の実践型ガイド: 過去の日付に記録したセットが1つも無い間だけ出す。
+     今日の分で初めて記録しても、ステップ3（確認）までは表示し続ける。 */
+  const hasPastRecordedSet = Object.entries(data.records).some(
+    ([k, r]) =>
+      k < key && r.done && Object.values(r.done).some((v) => typeof v === 'number' && v > 0),
+  );
+  const showPracticeGuide =
+    !data.prefs.practiceGuideDismissed && !hasPastRecordedSet && kind !== 'rest';
+  const guideProgress = practiceGuideProgress(core, key);
+
+  /* セット記録時の短い振動。対応していない環境では何もしない */
+  const vibrateShort = () => {
+    if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+      try {
+        navigator.vibrate(30);
+      } catch {
+        /* 振動できない環境では何もしない */
+      }
+    }
+  };
 
   /* 完了への切り替わりを検知してフィードバックする。初回表示では鳴らさない。 */
   useEffect(() => {
@@ -89,16 +124,40 @@ export function TodayView({ showView, onEditExercise }: TodayViewProps) {
     return { records, rec };
   };
 
-  const toggleSet = (exerciseId: string, setIndex: number) => {
+  const toggleSet = (exerciseId: string, setIndex: number, eventTimeStamp?: number) => {
+    /* 連続タップによる二重トグル防止: 同じボタンを短時間に再タップした場合は無視する。
+       時刻はクリックイベントの timeStamp を使う（イベント発生時点の時刻）。 */
+    const lastToggle = lastToggleRef.current;
+    if (
+      typeof eventTimeStamp === 'number' &&
+      lastToggle &&
+      lastToggle.exerciseId === exerciseId &&
+      lastToggle.setIndex === setIndex &&
+      eventTimeStamp - lastToggle.at < 500
+    ) {
+      return;
+    }
     const { records, rec } = ensureTodayRecord(short);
     const current = typeof rec.done[exerciseId] === 'number' ? rec.done[exerciseId] : 0;
     /* 飛ばし押しの防止: 次のセットか、最後に完了したセットの取り消しだけを受け付ける */
     if (setIndex > current) return;
+    if (typeof eventTimeStamp === 'number') {
+      lastToggleRef.current = { exerciseId, setIndex, at: eventTimeStamp };
+    }
     const next = setIndex < current ? setIndex : setIndex + 1;
     rec.done[exerciseId] = next;
     update({ records });
     showToast();
     const ex = data.exercises.find((e) => e.id === exerciseId);
+    if (next > setIndex) {
+      /* 記録した直後は「元に戻す」バーを出し、短く振動させて反応を返す */
+      showSetUndo({
+        exerciseId,
+        prevDone: current,
+        message: `${ex ? ex.name : '種目'} ${setIndex + 1}セット目を記録しました`,
+      });
+      vibrateShort();
+    }
     announce(
       `${ex ? ex.name : '種目'} ${setIndex + 1}セット目を${next > setIndex ? '完了にしました' : '未完了に戻しました'}`,
     );
@@ -108,9 +167,12 @@ export function TodayView({ showView, onEditExercise }: TodayViewProps) {
     const ex = data.exercises.find((e) => e.id === exerciseId);
     if (!ex) return;
     const { records, rec } = ensureTodayRecord(short);
+    const prevDone = typeof rec.done[exerciseId] === 'number' ? rec.done[exerciseId] : 0;
     rec.done[exerciseId] = todayTargetFor(core, rec, ex, short);
     update({ records });
     showToast();
+    showSetUndo({ exerciseId, prevDone, message: `${ex.name}を完了にしました` });
+    vibrateShort();
     announce(`${ex.name}を完了にしました`);
   };
 
@@ -122,7 +184,39 @@ export function TodayView({ showView, onEditExercise }: TodayViewProps) {
     }
   };
 
+  /* セット記録の取り消しバー。すべて完了のバーとは同時に出さない */
+  const hideSetUndo = () => {
+    setLastSetAction(null);
+    if (setUndoTimer.current) {
+      clearTimeout(setUndoTimer.current);
+      setUndoTimer.current = null;
+    }
+  };
+
+  const showSetUndo = (action: { exerciseId: string; prevDone: number; message: string }) => {
+    hideCompleteUndo();
+    hideSetUndo();
+    setLastSetAction(action);
+    setUndoTimer.current = setTimeout(() => setLastSetAction(null), 6000);
+  };
+
+  const undoSetAction = () => {
+    if (!lastSetAction) return;
+    const records = { ...data.records };
+    const rec = records[key] ? clone(records[key]) : null;
+    if (rec) {
+      if (typeof rec.done !== 'object' || rec.done === null) rec.done = {};
+      rec.done[lastSetAction.exerciseId] = lastSetAction.prevDone;
+      records[key] = rec;
+      update({ records });
+    }
+    hideSetUndo();
+    showToast('元に戻しました');
+    announce('記録を取り消しました');
+  };
+
   const completeAllToday = () => {
+    hideSetUndo();
     const prevRecord = data.records[key] ? clone(data.records[key]) : null;
     const { records, rec } = ensureTodayRecord(short);
     data.exercises.forEach((ex) => {
@@ -228,8 +322,94 @@ export function TodayView({ showView, onEditExercise }: TodayViewProps) {
 
   return (
     <>
+      {/* 初回の実践型ガイド（最初の記録までをステップで案内する）。
+          表示中は、説明だけの案内と開始プリセットは出さない（案内の重複を避ける） */}
+      {showPracticeGuide && (
+        <section className="card practice-guide" aria-labelledby="practice-guide-heading">
+          <h2 id="practice-guide-heading">はじめての記録</h2>
+          <p className="practice-guide__progress">ステップ {guideProgress.current} / 3</p>
+          <ol className="practice-guide__steps">
+            <li
+              className={`practice-guide__step${
+                guideProgress.step1Done
+                  ? ' practice-guide__step--done'
+                  : guideProgress.current === 1
+                    ? ' practice-guide__step--current'
+                    : ''
+              }`}
+              aria-current={guideProgress.current === 1 ? 'step' : undefined}
+            >
+              <span className="practice-guide__mark" aria-hidden="true">
+                {guideProgress.step1Done ? '✓' : '1'}
+              </span>
+              <div>
+                <p className="practice-guide__step-title">今日の種目を確認する</p>
+                <p className="practice-guide__step-text">
+                  下に今日やる種目が並んでいます。種目は「メニュー」画面で追加・変更できます。
+                </p>
+              </div>
+            </li>
+            <li
+              className={`practice-guide__step${
+                guideProgress.step2Done
+                  ? ' practice-guide__step--done'
+                  : guideProgress.current === 2
+                    ? ' practice-guide__step--current'
+                    : ''
+              }`}
+              aria-current={guideProgress.current === 2 ? 'step' : undefined}
+            >
+              <span className="practice-guide__mark" aria-hidden="true">
+                {guideProgress.step2Done ? '✓' : '2'}
+              </span>
+              <div>
+                <p className="practice-guide__step-title">
+                  「{nextAction ? nextAction.name : '最初の種目'}」の1セット目を押してみる
+                </p>
+                <p className="practice-guide__step-text">
+                  やってみたら、「次にやること」のボタンか、種目リストの「1セット目」ボタンを押すと記録できます。
+                </p>
+              </div>
+            </li>
+            <li
+              className={`practice-guide__step${
+                guideProgress.current === 3 ? ' practice-guide__step--current' : ''
+              }`}
+              aria-current={guideProgress.current === 3 ? 'step' : undefined}
+            >
+              <span className="practice-guide__mark" aria-hidden="true">
+                3
+              </span>
+              <div>
+                <p className="practice-guide__step-title">記録されたことを確認する</p>
+                <p className="practice-guide__step-text">
+                  進捗バーと「○/○セット完了」が増えていれば、記録できています。あとは今日の分が終わるまで繰り返すだけです。
+                </p>
+              </div>
+            </li>
+          </ol>
+          <div className="data-actions__row">
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                update({
+                  prefs: { ...data.prefs, practiceGuideDismissed: true, guideDismissed: true },
+                });
+                announce('案内を閉じました');
+              }}
+            >
+              閉じる
+            </button>
+          </div>
+          <p className="settings-hint">
+            この案内は初回だけ表示されます。トレーニングする曜日や短縮モードは「設定」で選べます。基本の使い方は、「設定」画面の「アプリ」からいつでも表示できます。
+          </p>
+        </section>
+      )}
+
       {/* 初回の案内 */}
-      {!data.prefs.guideDismissed && (
+      {!showPracticeGuide && !data.prefs.guideDismissed && (
         <section className="card guide-card" aria-labelledby="guide-heading">
           <h2 id="guide-heading">はじめに</h2>
           <p>このアプリは、毎日の自重トレーニングを記録するアプリです。使い方はかんたんです。</p>
@@ -263,7 +443,7 @@ export function TodayView({ showView, onEditExercise }: TodayViewProps) {
       )}
 
       {/* 開始プリセット */}
-      {showPreset && (
+      {!showPracticeGuide && showPreset && (
         <section className="card start-preset" aria-labelledby="start-preset-heading">
           <h2 id="start-preset-heading">はじめ方を選ぶ</h2>
           <p>まずは今の6種目で始めるか、軽い3種目から始めるか選べます。あとから「メニュー」画面で自由に変えられます。</p>
@@ -347,6 +527,42 @@ export function TodayView({ showView, onEditExercise }: TodayViewProps) {
           </div>
         </div>
 
+        {/* 次にやること: 次の未完了種目と、その次に控える種目の予告。
+            休みの日は無理に出さず、種目が無いときも出さない。 */}
+        {kind !== 'rest' &&
+          data.exercises.length > 0 &&
+          (nextAction ? (
+            <div className="next-action">
+              <p className="next-action__label">次にやること</p>
+              <p className="next-action__main">
+                {nextAction.name}
+                <span className="next-action__set">{nextAction.setIndex + 1}セット目</span>
+              </p>
+              <p className="next-action__goal">
+                目標: {nextAction.amount !== null ? `${nextAction.amount}${nextAction.unit ?? ''} × ` : ''}
+                {nextAction.target}セット（{nextAction.done}/{nextAction.target}セット完了）
+              </p>
+              <button
+                type="button"
+                className="btn btn--primary"
+                onClick={(e) => toggleSet(nextAction.exerciseId, nextAction.setIndex, e.timeStamp)}
+              >
+                このセットを記録する
+              </button>
+              {nextAction.after && (
+                <p className="next-action__after">その次は {nextAction.after.name}</p>
+              )}
+            </div>
+          ) : (
+            <div className="next-action next-action--done">
+              <p className="next-action__label">次にやること</p>
+              <p className="next-action__main">今日の分はすべて終わりました</p>
+              <p className="next-action__goal">
+                完了かスキップで、今日の種目はすべて片付いています。おつかれさまでした。
+              </p>
+            </div>
+          ))}
+
         {kind === 'rest' && (
           <p className="rest-banner">
             今日は休みの日です。完了は必須ではありません。やる場合は、できるところだけチェックしてOKです（付けた分は記録に残ります）。
@@ -380,6 +596,14 @@ export function TodayView({ showView, onEditExercise }: TodayViewProps) {
           <div className="undo-bar">
             <span>すべての種目を完了にしました。</span>
             <button type="button" className="btn btn--small" onClick={undoCompleteAll}>
+              元に戻す
+            </button>
+          </div>
+        )}
+        {lastSetAction && (
+          <div className="undo-bar">
+            <span>{lastSetAction.message}</span>
+            <button type="button" className="btn btn--small" onClick={undoSetAction}>
               元に戻す
             </button>
           </div>
@@ -437,7 +661,7 @@ export function TodayView({ showView, onEditExercise }: TodayViewProps) {
                         aria-pressed={isDone}
                         aria-label={`${ex.name} ${index + 1}セット目を${isDone ? '未完了に戻す' : '完了にする'}${isNext && !isDone ? '（次はこれ）' : ''}`}
                         disabled={skipped || !(isNext || isUndoable)}
-                        onClick={() => toggleSet(ex.id, index)}
+                        onClick={(e) => toggleSet(ex.id, index, e.timeStamp)}
                       >
                         {index + 1}セット目
                       </button>

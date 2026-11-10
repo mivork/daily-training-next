@@ -11,6 +11,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { authErrorMessage } from './auth';
 import { DEFAULT_PREFS, DEFAULT_SETTINGS, SYNC_META_KEY } from './constants';
 import { rankingNicknameOf, rankingValuesOf } from './logic';
 import { clone } from './sanitize';
@@ -86,15 +87,23 @@ export interface StoreValue {
   /* スクリーンリーダー向けの読み上げ */
   announcement: string;
   announce: (message: string) => void;
-  /* Supabase（任意ログイン） */
+  /* Supabase（ログイン必須） */
   cloudConfigured: boolean;
   user: User | null;
+  /* セッション確認が終わったか。終わるまではゲート画面も本体も出さず「読み込み中」にする */
+  authReady: boolean;
+  /* パスワード再設定リンクから戻ってきた状態。再設定が終わるまで本体に入れない */
+  passwordRecovery: boolean;
   syncMessage: string;
   /* オンラインランキングの同期状態メッセージ */
   rankingMessage: string;
   signIn: (email: string, password: string) => Promise<{ error?: string; notice?: string }>;
   signUp: (email: string, password: string) => Promise<{ error?: string; notice?: string }>;
   signOut: () => Promise<void>;
+  /* パスワード再設定メールの送信 */
+  requestPasswordReset: (email: string) => Promise<{ error?: string; notice?: string }>;
+  /* 再設定リンクから戻ってきたときに、新しいパスワードを保存する */
+  updatePassword: (newPassword: string) => Promise<{ error?: string; notice?: string }>;
 }
 
 const StoreContext = createContext<StoreValue | null>(null);
@@ -112,6 +121,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [toast, setToast] = useState<{ id: number; text: string } | null>(null);
   const [announcement, setAnnouncement] = useState('');
   const [user, setUser] = useState<User | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [passwordRecovery, setPasswordRecovery] = useState(false);
   const [syncMessage, setSyncMessage] = useState('');
   const [rankingMessage, setRankingMessage] = useState('');
 
@@ -320,23 +331,36 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setReady(true);
 
     const supabase = getSupabase();
-    if (!supabase) return;
+    if (!supabase) {
+      /* 未設定環境ではセッション確認自体が無いので、認証状態は即確定とする
+         （本体には入れず、ゲート画面で未設定の案内を出す） */
+      setAuthReady(true);
+      return;
+    }
     let cancelled = false;
     supabase.auth.getSession().then(({ data: sessionData }) => {
       if (cancelled) return;
       const sessionUser = sessionData.session?.user ?? null;
       userRef.current = sessionUser;
       setUser(sessionUser);
+      setAuthReady(true);
       if (sessionUser) void reconcile(sessionUser);
     });
     const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
       const sessionUser = session?.user ?? null;
       userRef.current = sessionUser;
       setUser(sessionUser);
-      if (event === 'SIGNED_OUT') {
+      /* どのイベントでも、届いた時点でセッションの有無は確定している */
+      setAuthReady(true);
+      if (event === 'PASSWORD_RECOVERY') {
+        /* 再設定リンクから戻ってきた。新しいパスワードを設定するまで本体に入れない。
+           reconcile はパスワード更新後に行う */
+        setPasswordRecovery(true);
+      } else if (event === 'SIGNED_OUT') {
         reconciledForRef.current = '';
         setSyncMessage('');
         setRankingMessage('');
+        setPasswordRecovery(false);
       } else if (sessionUser && (event === 'SIGNED_IN' || event === 'INITIAL_SESSION')) {
         void reconcile(sessionUser);
       }
@@ -353,8 +377,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       return {
-        error:
-          'ログインできませんでした。メールアドレスとパスワードを確認してください。登録直後の場合は、確認メール内のリンクを開いてからログインしてください。',
+        error: authErrorMessage(
+          error,
+          'ログインできませんでした。メールアドレスとパスワードを確認してください。',
+        ),
       };
     }
     return { notice: 'ログインしました。' };
@@ -363,16 +389,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const signUp = useCallback(async (email: string, password: string) => {
     const supabase = getSupabase();
     if (!supabase) return { error: 'クラウド連携が設定されていません。' };
+    /* Confirm email はオフ前提: 登録すると即セッションが返り、そのまま本体へ入れる */
     const { data: signUpData, error } = await supabase.auth.signUp({ email, password });
     if (error) {
-      return { error: '登録できませんでした。メールアドレスの形式や、パスワード（6文字以上）を確認してください。' };
+      return {
+        error: authErrorMessage(
+          error,
+          '登録できませんでした。メールアドレスの形式や、パスワード（6文字以上）を確認してください。',
+        ),
+      };
     }
     if (!signUpData.session) {
-      /* Confirm email がオンのため、確認メールが届く前提の文言にする */
-      return {
-        notice:
-          '確認メールを送信しました。メール内のリンクを開いて登録を完了してから、ログインしてください。',
-      };
+      /* セッションが返らないのは想定外の状態（登録済みメールアドレスの場合など）。
+         確認メールは届かないので、ログインを促す文言にする */
+      return { notice: '登録手続きが完了しました。ログインしてください。' };
     }
     return { notice: '登録してログインしました。' };
   }, []);
@@ -386,7 +416,45 @@ export function AppProvider({ children }: { children: ReactNode }) {
     reconciledForRef.current = '';
     setSyncMessage('');
     setRankingMessage('');
+    setPasswordRecovery(false);
   }, []);
+
+  /* パスワード再設定メールの送信。リンク先では再設定フォームを出す（PASSWORD_RECOVERY で判定） */
+  const requestPasswordReset = useCallback(async (email: string) => {
+    const supabase = getSupabase();
+    if (!supabase) return { error: 'クラウド連携が設定されていません。' };
+    const trimmed = email.trim();
+    if (trimmed === '') return { error: 'メールアドレスを入力してから、送信してください。' };
+    const { error } = await supabase.auth.resetPasswordForEmail(trimmed, {
+      redirectTo: window.location.origin,
+    });
+    if (error) {
+      return { error: authErrorMessage(error, 'パスワード再設定のメールを送れませんでした。') };
+    }
+    return {
+      notice:
+        'パスワード再設定用のメールを送りました。メール内のリンクを開いて、新しいパスワードを設定してください。',
+    };
+  }, []);
+
+  /* 再設定リンクから戻ってきたときに、新しいパスワードを保存する。
+     保存できたら再設定状態を解除し、データの突き合わせをして本体へ進む */
+  const updatePassword = useCallback(
+    async (newPassword: string) => {
+      const supabase = getSupabase();
+      if (!supabase) return { error: 'クラウド連携が設定されていません。' };
+      if (newPassword.length < 6) return { error: 'パスワードは6文字以上で入力してください。' };
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) {
+        return { error: authErrorMessage(error, 'パスワードを更新できませんでした。') };
+      }
+      setPasswordRecovery(false);
+      const currentUser = userRef.current;
+      if (currentUser) void reconcile(currentUser);
+      return { notice: 'パスワードを更新しました。' };
+    },
+    [reconcile],
+  );
 
   const value = useMemo<StoreValue>(
     () => ({
@@ -402,11 +470,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       announce,
       cloudConfigured: isSupabaseConfigured(),
       user,
+      authReady,
+      passwordRecovery,
       syncMessage,
       rankingMessage,
       signIn,
       signUp,
       signOut,
+      requestPasswordReset,
+      updatePassword,
     }),
     [
       ready,
@@ -420,11 +492,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       announcement,
       announce,
       user,
+      authReady,
+      passwordRecovery,
       syncMessage,
       rankingMessage,
       signIn,
       signUp,
       signOut,
+      requestPasswordReset,
+      updatePassword,
     ],
   );
 
